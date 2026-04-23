@@ -1,10 +1,17 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bson::doc;
-use rango_core::RangoEngine;
+use rango_core::{
+    AnomalySignalHook, AuditSink, BoundedContextFilterHook, ControlPlane, NoopPromotionGateHook,
+    PromotionRequest, ReadRequest, RetrievalGateHook, RangoEngine, TrustScoringHook,
+    WriteContext, WritePayload, WriteValidationHook,
+};
 use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
-use rango_types::{CollectionName, DocumentId, Mutation, MutationOp, Revision};
+use rango_types::{
+    CollectionName, DocumentId, GovernanceDecision, MemoryTier, Mutation, MutationOp,
+    PolicyDecision, Revision,
+};
 use std::str::FromStr;
 
 fn setup(node_id: &str) -> RangoEngine<MemoryStorage> {
@@ -245,4 +252,170 @@ fn test_phase8_metrics_replay_duration_and_drift() {
     assert!(snapshot.replay_duration_us_count >= 1);
     assert!(snapshot.replay_duration_us_total > 0);
     assert!(snapshot.replay_drift_detection_count >= 1);
+}
+
+struct OrderedWriteHook {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl WriteValidationHook for OrderedWriteHook {
+    fn validate(&self, _ctx: &WriteContext, _payload: &WritePayload) -> GovernanceDecision {
+        self.order.lock().unwrap().push("write.validate");
+        GovernanceDecision {
+            decision: PolicyDecision::Allow,
+            reason: "ok".to_string(),
+        }
+    }
+}
+
+struct OrderedTrustHook {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl TrustScoringHook for OrderedTrustHook {
+    fn score(&self, _ctx: &WriteContext, _payload: &WritePayload) -> f64 {
+        self.order.lock().unwrap().push("write.trust");
+        0.95
+    }
+}
+
+struct OrderedRetrievalHook {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl RetrievalGateHook for OrderedRetrievalHook {
+    fn allow(&self, _request: &ReadRequest) -> GovernanceDecision {
+        self.order.lock().unwrap().push("read.gate");
+        GovernanceDecision {
+            decision: PolicyDecision::Allow,
+            reason: "ok".to_string(),
+        }
+    }
+}
+
+struct OrderedFilterHook {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl BoundedContextFilterHook for OrderedFilterHook {
+    fn apply(&self, _request: &ReadRequest, candidates: Vec<bson::Document>) -> Vec<bson::Document> {
+        self.order.lock().unwrap().push("read.filter");
+        candidates
+    }
+}
+
+struct OrderedAnomalyHook {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl AnomalySignalHook for OrderedAnomalyHook {
+    fn evaluate(&self, stage: &'static str, _decision: &GovernanceDecision) {
+        self.order.lock().unwrap().push(match stage {
+            "write.validate" => "write.anomaly.validate",
+            "write.trust" => "write.anomaly.trust",
+            "read.gate" => "read.anomaly",
+            _ => "anomaly.other",
+        });
+    }
+}
+
+struct OrderedAuditSink {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl AuditSink for OrderedAuditSink {
+    fn record(&self, stage: &'static str, _decision: &GovernanceDecision) {
+        self.order.lock().unwrap().push(match stage {
+            "write.validate" => "write.audit.validate",
+            "write.trust" => "write.audit.trust",
+            "read.gate" => "read.audit",
+            _ => "audit.other",
+        });
+    }
+}
+
+#[test]
+fn test_control_plane_hook_invocation_order_write_and_read() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let control_plane = ControlPlane::with_hooks(
+        Arc::new(OrderedWriteHook {
+            order: order.clone(),
+        }),
+        Arc::new(OrderedTrustHook {
+            order: order.clone(),
+        }),
+        Arc::new(NoopPromotionGateHook),
+        Arc::new(OrderedRetrievalHook {
+            order: order.clone(),
+        }),
+        Arc::new(OrderedFilterHook {
+            order: order.clone(),
+        }),
+        Arc::new(OrderedAnomalyHook {
+            order: order.clone(),
+        }),
+        Arc::new(OrderedAuditSink {
+            order: order.clone(),
+        }),
+    );
+
+    let write_ctx = WriteContext {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        actor: "actor".to_string(),
+        source: "source".to_string(),
+        tier: MemoryTier::State,
+    };
+    let write_payload = WritePayload::State(doc! { "k": "v" });
+
+    let write_decision = control_plane.write_path(&write_ctx, &write_payload).unwrap();
+    assert!(matches!(write_decision.decision, PolicyDecision::Allow));
+
+    let read_request = ReadRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        tier: MemoryTier::State,
+        limit: 5,
+    };
+    let (_, filtered) = control_plane
+        .read_path(&read_request, vec![doc! { "k": "v" }])
+        .unwrap();
+    assert_eq!(filtered.len(), 1);
+
+    let order = order.lock().unwrap().clone();
+    assert_eq!(
+        order,
+        vec![
+            "write.validate",
+            "write.audit.validate",
+            "write.anomaly.validate",
+            "write.trust",
+            "write.audit.trust",
+            "write.anomaly.trust",
+            "read.gate",
+            "read.audit",
+            "read.anomaly",
+            "read.filter"
+        ]
+    );
+}
+
+#[test]
+fn test_control_plane_promotion_path_is_explicit() {
+    let control_plane = ControlPlane::default();
+    let request = PromotionRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        from: MemoryTier::Episodic,
+        to: MemoryTier::Semantic,
+        candidate_id: "candidate-1".to_string(),
+    };
+    let payload = WritePayload::State(doc! { "k": "v" });
+
+    let (decision, sanitized) = control_plane.promotion_path(&request, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Allow));
+    match sanitized {
+        WritePayload::State(d) => assert_eq!(d.get_str("k").unwrap(), "v"),
+        _ => panic!("expected state payload"),
+    }
 }

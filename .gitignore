@@ -1,0 +1,50 @@
+# =============================================================================
+# Rango — .gitignore
+# =============================================================================
+
+# Build artifacts
+/target/
+
+# Planning notes (local-only GSD workflow)
+.planning/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Database test artifacts
+*.db
+*.rango
+test_data/
+data/
+
+# OS-generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V8
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & editor configs (personal, not shared)
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Cargo audit / coverage temp files
+lcov.info
+coverage/
+tarpaulin-report.html
+cobertura.xml
+
+# Benchmark baselines (machine-specific)
+criterion/

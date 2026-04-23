@@ -1,0 +1,59 @@
+[workspace]
+members = [
+    "crates/types",
+    "crates/core",
+    "crates/storage",
+    "crates/index",
+    "crates/query",
+    "crates/oplog",
+    "crates/sync",
+    "crates/server",
+    "crates/sdk-rust",
+    "crates/cli",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Rango Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rango-db/rango"
+
+[workspace.dependencies]
+# Core serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bson = { version = "3.1", features = ["serde"] }
+
+# Async runtime
+tokio = { version = "1.44", features = ["full"] }
+
+# HTTP stack
+axum = "0.8"
+reqwest = { version = "0.12", features = ["json"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# ID generation
+uuid = { version = "1.17", features = ["v7", "serde"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Testing
+proptest = "1.6"
+criterion = "0.5"
+
+# Encryption
+aes-gcm = "0.10"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+rand = "0.8"

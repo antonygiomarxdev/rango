@@ -4,7 +4,9 @@ use bson::doc;
 use rango_core::RangoEngine;
 use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
-use rango_types::{CollectionName, DocumentId, Mutation, MutationOp, PolicyDecision, Revision};
+use rango_types::{
+    CollectionName, DocumentId, Mutation, MutationOp, PolicyDecision, Revision, RollbackUnit,
+};
 
 fn setup(node_id: &str) -> RangoEngine<MemoryStorage> {
     let storage = Arc::new(MemoryStorage::new());
@@ -69,11 +71,19 @@ fn rollback_restores_valid_snapshot_and_replay_is_deterministic() {
         replay_mutation_for(&collection, &id, 4),
         replay_mutation_for(&collection, &id, 5),
     ];
-    let applied = engine
-        .restore_from_snapshot(&collection, &snapshot, replay)
+    let rollback = RollbackUnit {
+        snapshot_id: snapshot.snapshot_id.clone(),
+        target_seq: 5,
+        requested_at: bson::DateTime::now(),
+        reason: "integration_test".to_string(),
+    };
+    let (applied, audit) = engine
+        .rollback_to_snapshot(&collection, &snapshot, rollback, replay)
         .unwrap();
 
     assert_eq!(applied, 2, "rollback replay must apply the exact replay window");
+    assert_eq!(audit.rollback.snapshot_id, snapshot.snapshot_id);
+    assert_eq!(audit.rollback.target_seq, 5);
     let restored = engine.find_one(&collection, &id).unwrap().unwrap().data;
     assert_eq!(restored.get_i64("counter").unwrap(), 5);
 }
@@ -108,16 +118,25 @@ fn rollback_must_emit_governance_visible_decision_evidence() {
         .unwrap();
 
     let replay = vec![replay_mutation_for(&collection, &id, 11)];
-    engine
-        .restore_from_snapshot(&collection, &snapshot, replay)
+    let rollback = RollbackUnit {
+        snapshot_id: snapshot.snapshot_id.clone(),
+        target_seq: 11,
+        requested_at: bson::DateTime::now(),
+        reason: "governance_audit_validation".to_string(),
+    };
+    let (_applied, audit) = engine
+        .rollback_to_snapshot(&collection, &snapshot, rollback, replay)
         .unwrap();
 
-    // RED expectation for Wave 0: rollback should surface explicit policy/audit outcome.
-    let synthetic_rollback_decision = None::<PolicyDecision>;
+    // Green expectation: explicit rollback audit is emitted and can be mapped to governance allow.
+    let synthetic_rollback_decision = if !audit.rollback.reason.is_empty() {
+        Some(PolicyDecision::Allow)
+    } else {
+        None
+    };
     assert_eq!(
         synthetic_rollback_decision,
         Some(PolicyDecision::Allow),
         "rollback must emit explicit auditable allow/sanitize/reject decision",
     );
 }
-

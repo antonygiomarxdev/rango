@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -104,12 +103,9 @@ fn make_mutation(write_id: &str) -> Mutation {
 #[tokio::test]
 async fn pull_filter_selection_uses_stable_identity_for_duplicate_payloads() {
     let oplog = Arc::new(InMemoryOplog::default());
-    let state = ServerState {
-        oplog: oplog.clone(),
-        tokens: Mutex::new(HashMap::new()),
-        non_owner_rejections: AtomicU64::new(0),
-        cross_tenant_rejections: AtomicU64::new(0),
-        control_plane: Arc::new(ControlPlane::with_hooks(
+    let state = ServerState::with_control_plane(
+        oplog.clone(),
+        Arc::new(ControlPlane::with_hooks(
             Arc::new(NoopWriteValidationHook),
             Arc::new(NoopTrustScoringHook),
             Arc::new(NoopPromotionGateHook),
@@ -118,7 +114,7 @@ async fn pull_filter_selection_uses_stable_identity_for_duplicate_payloads() {
             Arc::new(NoopAnomalySignalHook),
             Arc::new(NoopAuditSink),
         )),
-    };
+    );
     state.add_token_with_tenant("test-token", "node-1", "tenant-a");
 
     oplog

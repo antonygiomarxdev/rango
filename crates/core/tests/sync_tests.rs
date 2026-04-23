@@ -493,10 +493,50 @@ fn test_snapshot_restore_converges_with_full_replay() {
             expires_at: None,
         },
     };
+    let audit_doc_id = DocumentId::new_uuid_v7();
+    let audit_rev = Revision::now("node-a");
+    let governance_audit_mutation = Mutation {
+        op: MutationOp::Insert,
+        collection: coll.0.clone(),
+        doc_id: audit_doc_id.clone(),
+        patch: Some(doc! {
+            "_id": audit_doc_id.0.clone(),
+            "_rev": audit_rev.to_string(),
+            "stage": "write",
+            "decision": "allow",
+            "tenant_id": "tenant-a",
+            "namespace": coll.0.clone(),
+            "write_id": "snapshot-replay-write"
+        }),
+        seq: 4,
+        timestamp: bson::DateTime::now(),
+        rev: audit_rev.clone(),
+        write_id: "snapshot-governance-audit".to_string(),
+        metadata: rango_types::MutationMetadata {
+            id: audit_doc_id.clone(),
+            namespace: coll.0.clone(),
+            tenant_id: "tenant-a".to_string(),
+            r#type: "governance_audit".to_string(),
+            rev: audit_rev,
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "node-a".to_string(),
+            actor: "node-a".to_string(),
+            lineage: audit_doc_id.to_string(),
+            schema_version: 1,
+            trust_score: 1.0,
+            verified: Some(true),
+            expires_at: None,
+        },
+    };
 
     let restored = setup("node-a");
     restored
-        .restore_from_snapshot(&coll, &snapshot, vec![replay_mutation.clone()])
+        .restore_from_snapshot(
+            &coll,
+            &snapshot,
+            vec![replay_mutation.clone(), governance_audit_mutation.clone()],
+        )
         .unwrap();
 
     let full_replay = setup("node-a");
@@ -509,12 +549,20 @@ fn test_snapshot_restore_converges_with_full_replay() {
         assert!(full_replay.find_one(&coll, &doc_id).unwrap().is_some());
     }
     full_replay
-        .apply_mutations_deterministic(&coll, vec![replay_mutation])
+        .apply_mutations_deterministic(&coll, vec![replay_mutation, governance_audit_mutation])
         .unwrap();
 
     let restored_doc = restored.find_one(&coll, &id).unwrap().unwrap().data;
     let replay_doc = full_replay.find_one(&coll, &id).unwrap().unwrap().data;
     assert_eq!(restored_doc, replay_doc);
+    let restored_raw = restored.find_all_raw(&coll).unwrap();
+    let replay_raw = full_replay.find_all_raw(&coll).unwrap();
+    assert_eq!(restored_raw.len(), replay_raw.len());
+    assert!(restored_raw.iter().all(|doc| {
+        doc.get_str("tenant_id")
+            .map(|tenant| tenant == "tenant-a")
+            .unwrap_or(true)
+    }));
 }
 
 #[test]

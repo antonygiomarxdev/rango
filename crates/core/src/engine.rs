@@ -601,6 +601,46 @@ impl<S: StorageEngine> RangoEngine<S> {
         self.apply_mutations_deterministic(collection, replay)
     }
 
+    /// Deterministic rollback operation:
+    /// 1) validate rollback target against snapshot identity and base sequence,
+    /// 2) restore snapshot state,
+    /// 3) replay only mutations up to rollback target sequence,
+    /// 4) emit an explicit rollback audit outcome.
+    pub fn rollback_to_snapshot(
+        &self,
+        collection: &CollectionName,
+        snapshot: &SnapshotUnit,
+        rollback: RollbackUnit,
+        replay_window: Vec<Mutation>,
+    ) -> Result<(usize, RollbackAudit), RangoError> {
+        if rollback.snapshot_id != snapshot.snapshot_id {
+            return Err(RangoError::Conflict(
+                "rollback snapshot_id does not match provided snapshot".to_string(),
+            ));
+        }
+        if rollback.target_seq < snapshot.base_seq {
+            return Err(RangoError::Conflict(
+                "rollback target_seq cannot be below snapshot base_seq".to_string(),
+            ));
+        }
+        if snapshot.namespace != collection.0 {
+            return Err(RangoError::Conflict(
+                "snapshot namespace does not match collection".to_string(),
+            ));
+        }
+
+        let bounded_replay: Vec<Mutation> = replay_window
+            .into_iter()
+            .filter(|mutation| mutation.seq <= rollback.target_seq)
+            .collect();
+        let applied = self.restore_from_snapshot(collection, snapshot, bounded_replay)?;
+        let audit = RollbackAudit {
+            rollback,
+            applied_at: bson::DateTime::now(),
+        };
+        Ok((applied, audit))
+    }
+
     fn add_conflict(&self, loser: &Document, winner: &mut Document) -> Result<(), RangoError> {
         let conflicts = winner
             .entry("_conflicts")

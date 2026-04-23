@@ -26,7 +26,7 @@ Stateful agents, copilots, and long-running automations all hit the same wall: t
 | Memory should look like documents, not rows | BSON-native documents and document-level mutations |
 | Platform teams need safe operational state | Encryption at rest, oplog, checkpoints, and audit-friendly history |
 
-Rango is **not** a MongoDB clone, not SQLite with JSON bolted on, and not an analytics database. It is a primitive you embed directly in your application to give AI systems durable operational memory.
+Rango is not a generic storage product. It is a substrate you embed to give AI systems durable operational memory.
 
 ---
 
@@ -39,7 +39,7 @@ Rango is **not** a MongoDB clone, not SQLite with JSON bolted on, and not an ana
 - **Document query and mutation engine** — `$eq`, `$in`, `$gt`, `$gte`, `$lt`, `$lte`, `$and`, `$or`, plus `$set`/`$unset`/`$inc`
 - **Secondary indexes** — B-tree indexes created and dropped at runtime
 - **At-rest encryption** — AES-256-GCM with passphrase-derived keys
-- **Import/export** — JSON Lines and MongoDB Extended JSON migration paths
+- **Import/export** — structured memory snapshot exchange for bootstrap and recovery
 - **Operational tooling** — `init`, `inspect`, `import`, `export`, `bench`, `doctor`, `sync`
 - **Observability** — structured tracing, metrics, and durable sync metadata
 
@@ -127,7 +127,7 @@ rango doctor ./my-data
 
 Every layer depends only on the layer below it. The `StorageEngine` trait is the main extension point, and the core abstraction is not just storage: it is durable document state plus revisioned history.
 
-Full architecture: [docs/architecture.md](docs/architecture.md)
+Full architecture: [docs/architecture/overview.md](docs/architecture/overview.md)
 
 ---
 
@@ -153,7 +153,7 @@ Full architecture: [docs/architecture.md](docs/architecture.md)
 - durable memory for copilots and autonomous agents
 - local operational state for automations that must survive restarts
 - syncable document state across desktop, edge, and backend runtimes
-- embedded memory layers where full database infrastructure would be overkill
+- embedded memory layers where heavyweight persistence stacks would be overkill
 
 ---
 
@@ -173,7 +173,7 @@ Edge Node                          Sync Server
 
 Each document carries a `_rev` (Hybrid Logical Clock timestamp). Conflicts are resolved Last-Write-Wins; the losing version is stored in `_conflicts` (max 10 retained), which makes sync suitable for operational memory instead of stateless cache replication.
 
-Full spec: [docs/sync-protocol.md](docs/sync-protocol.md)
+Full spec: [docs/reference/sync-protocol.md](docs/reference/sync-protocol.md)
 
 ---
 
@@ -197,13 +197,16 @@ cargo bench --workspace
 
 ## Documentation
 
+- [Docs Index](docs/README.md)
 - [Vision & Principles](docs/vision.md)
-- [Architecture](docs/architecture.md)
-- [API Reference](docs/api.md)
-- [Query Language](docs/query-language.md)
-- [Sync Protocol](docs/sync-protocol.md)
-- [Migration Guide](docs/migration.md)
-- [Security](docs/SECURITY.md)
+- [Architecture](docs/architecture/overview.md)
+- [Memory Model](docs/architecture/memory/model.md)
+- [Memory Layers](docs/architecture/memory/layers.md)
+- [Memory API Sketch](docs/architecture/memory/api-sketch.md)
+- [API Reference](docs/reference/api.md)
+- [Query Language](docs/reference/query-language.md)
+- [Sync Protocol](docs/reference/sync-protocol.md)
+- [Security](docs/operations/security.md)
 - [ADR-001: Storage Engine](docs/adr/ADR-001-storage-engine.md)
 - [ADR-002: ID Generation](docs/adr/ADR-002-id-generation.md)
 - [ADR-003: Sync Protocol](docs/adr/ADR-003-sync-protocol.md)
@@ -256,3 +259,4 @@ Source-available under [Business Source License 1.1](LICENSE) with a project-spe
 
 Commercial licenses are available for hosted, embedded, large-enterprise, and competitive uses.
 See [LICENSING.md](LICENSING.md) for the practical policy.
+

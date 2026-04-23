@@ -1,0 +1,27 @@
+[package]
+name = "rango-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rango-types = { path = "../types" }
+rango-storage = { path = "../storage" }
+rango-index = { path = "../index" }
+rango-query = { path = "../query" }
+rango-oplog = { path = "../oplog" }
+serde = { workspace = true }
+bson = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "crud_benchmark"
+harness = false

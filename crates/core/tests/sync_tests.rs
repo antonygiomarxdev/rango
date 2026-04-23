@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use bson::doc;
 use rango_core::{
     AnomalySignalHook, AuditSink, BoundedContextFilterHook, ControlPlane, NoopPromotionGateHook,
-    PromotionRequest, ReadRequest, RetrievalGateHook, RangoEngine, TrustScoringHook,
-    WriteContext, WritePayload, WriteValidationHook,
+    PromotionRequest, RangoEngine, ReadRequest, RetrievalGateHook, TrustScoringHook, WriteContext,
+    WritePayload, WriteValidationHook,
 };
 use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
@@ -298,7 +298,11 @@ struct OrderedFilterHook {
 }
 
 impl BoundedContextFilterHook for OrderedFilterHook {
-    fn apply(&self, _request: &ReadRequest, candidates: Vec<bson::Document>) -> Vec<bson::Document> {
+    fn apply(
+        &self,
+        _request: &ReadRequest,
+        candidates: Vec<bson::Document>,
+    ) -> Vec<bson::Document> {
         self.order.lock().unwrap().push("read.filter");
         candidates
     }
@@ -368,7 +372,9 @@ fn test_control_plane_hook_invocation_order_write_and_read() {
     };
     let write_payload = WritePayload::State(doc! { "k": "v" });
 
-    let write_decision = control_plane.write_path(&write_ctx, &write_payload).unwrap();
+    let write_decision = control_plane
+        .write_path(&write_ctx, &write_payload)
+        .unwrap();
     assert!(matches!(write_decision.decision, PolicyDecision::Allow));
 
     let read_request = ReadRequest {
@@ -444,7 +450,9 @@ fn test_control_plane_rejects_low_trust_writes() {
 fn test_snapshot_restore_converges_with_full_replay() {
     let coll = CollectionName::new("snapshot");
     let source = setup("node-a");
-    let id = source.insert_one(&coll, doc! { "name": "Alice", "v": 1 }).unwrap();
+    let id = source
+        .insert_one(&coll, doc! { "name": "Alice", "v": 1 })
+        .unwrap();
     source
         .update_one(&coll, &id, doc! { "$set": { "v": 2 } })
         .unwrap();

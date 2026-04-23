@@ -48,16 +48,13 @@ impl ServerState {
         node_id: impl Into<String>,
         tenant_id: impl Into<String>,
     ) {
-        self.tokens
-            .lock()
-            .unwrap()
-            .insert(
-                token.into(),
-                AuthPrincipal {
-                    node_id: node_id.into(),
-                    tenant_id: tenant_id.into(),
-                },
-            );
+        self.tokens.lock().unwrap().insert(
+            token.into(),
+            AuthPrincipal {
+                node_id: node_id.into(),
+                tenant_id: tenant_id.into(),
+            },
+        );
     }
 
     fn validate_token(&self, auth_header: Option<&str>) -> Option<AuthPrincipal> {
@@ -109,7 +106,9 @@ pub async fn handle_push(
     }
 
     if req.tenant_id != principal.tenant_id {
-        state.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+        state
+            .cross_tenant_rejections
+            .fetch_add(1, Ordering::Relaxed);
         let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
         return Ok(Json(PushResponse {
             accepted_seqs: Vec::new(),
@@ -127,9 +126,12 @@ pub async fn handle_push(
     let mut rejected_cross_tenant_count = 0u64;
     let mut audit = Vec::new();
     for mutation in req.mutations {
-        if mutation.metadata.tenant_id != req.tenant_id || mutation.metadata.namespace != req.namespace
+        if mutation.metadata.tenant_id != req.tenant_id
+            || mutation.metadata.namespace != req.namespace
         {
-            state.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            state
+                .cross_tenant_rejections
+                .fetch_add(1, Ordering::Relaxed);
             rejected_cross_tenant_count += 1;
             audit.push(GovernanceDecision {
                 decision: PolicyDecision::Reject,

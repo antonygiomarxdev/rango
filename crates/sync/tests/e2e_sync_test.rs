@@ -103,7 +103,13 @@ async fn test_e2e_push_and_pull() {
 
     // Non-owner write attempt: token owner is client-1, request claims client-2.
     let rejected = client
-        .push_scoped("client-2", "tenant-a", "test", vec![dummy_mutation(3)], Checkpoint(2))
+        .push_scoped(
+            "client-2",
+            "tenant-a",
+            "test",
+            vec![dummy_mutation(3)],
+            Checkpoint(2),
+        )
         .await
         .unwrap();
     assert_eq!(rejected.accepted_seqs.len(), 0);
@@ -127,14 +133,22 @@ async fn test_e2e_push_and_pull() {
     let mut low_trust = dummy_mutation(5);
     low_trust.metadata.trust_score = 0.1;
     let low_trust_resp = client
-        .push_scoped("client-1", "tenant-a", "test", vec![low_trust], Checkpoint(2))
+        .push_scoped(
+            "client-1",
+            "tenant-a",
+            "test",
+            vec![low_trust],
+            Checkpoint(2),
+        )
         .await
         .unwrap();
     assert_eq!(low_trust_resp.accepted_seqs.len(), 0);
-    assert!(low_trust_resp
-        .audit
-        .iter()
-        .any(|d| d.reason.starts_with("trust_score_below_threshold")));
+    assert!(
+        low_trust_resp
+            .audit
+            .iter()
+            .any(|d| d.reason.starts_with("trust_score_below_threshold"))
+    );
 }
 
 #[tokio::test]

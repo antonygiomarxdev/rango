@@ -77,14 +77,16 @@ jobs:
           ignore: RUSTSEC-2026-0009
 
   # ---------------------------------------------------------------------------
-  # License & dependency check
+  # Dependency policy check
   # ---------------------------------------------------------------------------
   deny:
-    name: Deny (licenses + bans + advisories)
+    name: Deny (bans + advisories + sources)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans advisories sources
 
   # ---------------------------------------------------------------------------
   # Documentation build

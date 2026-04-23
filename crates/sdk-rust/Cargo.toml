@@ -1,0 +1,26 @@
+[package]
+name = "rango-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rango-types = { path = "../types" }
+rango-core = { path = "../core" }
+rango-storage = { path = "../storage" }
+rango-query = { path = "../query" }
+rango-oplog = { path = "../oplog" }
+rango-sync = { path = "../sync" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bson = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = "3"

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU16, Ordering as AtomicOrdering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Hybrid Logical Clock for conflict resolution.
-/// Format: "<timestamp_ms>-<counter>-<node_id_short>"
+/// Format: `<timestamp_ms>-<counter>-<node_id_short>`
 /// Ordered lexicographically == ordered semantically.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -47,7 +47,10 @@ impl Revision {
     pub fn node_id_short(&self) -> &str {
         // Find the second dash
         let first = self.0.find('-').unwrap_or(0);
-        let second = self.0[first + 1..].find('-').map(|i| first + 1 + i).unwrap_or(self.0.len());
+        let second = self.0[first + 1..]
+            .find('-')
+            .map(|i| first + 1 + i)
+            .unwrap_or(self.0.len());
         &self.0[second + 1..]
     }
 
@@ -73,8 +76,12 @@ impl FromStr for Revision {
         if parts.len() != 3 {
             return Err(format!("Invalid revision format: {}", s));
         }
-        let _ts: u64 = parts[0].parse().map_err(|e| format!("Invalid timestamp: {}", e))?;
-        let _cnt: u16 = parts[1].parse().map_err(|e| format!("Invalid counter: {}", e))?;
+        let _ts: u64 = parts[0]
+            .parse()
+            .map_err(|e| format!("Invalid timestamp: {}", e))?;
+        let _cnt: u16 = parts[1]
+            .parse()
+            .map_err(|e| format!("Invalid counter: {}", e))?;
         Ok(Self(s.to_string()))
     }
 }

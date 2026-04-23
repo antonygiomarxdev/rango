@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use bson::{doc, Document};
+use bson::{Document, doc};
 use rango_storage::CryptoEngine;
 use rango_types::{OplogEntry, RangoError};
 use tracing::{info, instrument};
@@ -122,8 +122,8 @@ impl FileOplog {
         if let Some(c) = &self.crypto {
             bytes = c.encrypt(&bytes);
         }
-        let mut file = File::create(&applied_path)
-            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut file =
+            File::create(&applied_path).map_err(|e| RangoError::Storage(e.to_string()))?;
         file.write_all(&bytes)
             .map_err(|e| RangoError::Storage(e.to_string()))?;
         file.sync_all()
@@ -136,7 +136,10 @@ impl Oplog for FileOplog {
     #[instrument(skip(self, entry))]
     fn append(&self, mut entry: OplogEntry) -> Result<u64, RangoError> {
         info!(seq = entry.seq, "appending to oplog");
-        let mut state = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         state.next_seq += 1;
         entry.seq = state.next_seq;
 
@@ -202,7 +205,10 @@ impl Oplog for FileOplog {
 
     #[instrument(skip(self), fields(seq))]
     fn mark_applied(&self, seq: u64) -> Result<(), RangoError> {
-        let mut state = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         state.applied.insert(seq);
         self.write_applied(&state)?;
         Ok(())
@@ -210,7 +216,10 @@ impl Oplog for FileOplog {
 
     #[instrument(skip(self))]
     fn latest_seq(&self) -> Result<u64, RangoError> {
-        let state = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         Ok(state.next_seq)
     }
 }
@@ -220,12 +229,15 @@ impl FileOplog {
     /// Writes a new file atomically and swaps it in.
     #[instrument(skip(self))]
     pub fn compact(&self) -> Result<u64, RangoError> {
-        let state = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         let file = File::open(&self.path).map_err(|e| RangoError::Storage(e.to_string()))?;
         let mut reader = BufReader::new(file);
         let temp_path = self.path.with_extension("compact.tmp");
-        let mut temp_file = File::create(&temp_path)
-            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut temp_file =
+            File::create(&temp_path).map_err(|e| RangoError::Storage(e.to_string()))?;
         let mut kept = 0u64;
 
         while let Ok(len) = read_u32(&mut reader) {
@@ -239,7 +251,8 @@ impl FileOplog {
                     Err(e) => {
                         tracing::warn!("compact: failed to decrypt entry, keeping: {}", e);
                         write_u32(&mut temp_file, len)?;
-                        temp_file.write_all(&buf)
+                        temp_file
+                            .write_all(&buf)
                             .map_err(|e| RangoError::Storage(e.to_string()))?;
                         kept += 1;
                         continue;
@@ -252,33 +265,39 @@ impl FileOplog {
                 if let Ok(entry) = bson::de::deserialize_from_document::<OplogEntry>(doc.clone()) {
                     if !state.applied.contains(&entry.seq) {
                         write_u32(&mut temp_file, len)?;
-                        temp_file.write_all(&buf)
+                        temp_file
+                            .write_all(&buf)
                             .map_err(|e| RangoError::Storage(e.to_string()))?;
                         kept += 1;
                     }
                 } else {
                     // If we can't deserialize, keep it to be safe
                     write_u32(&mut temp_file, len)?;
-                    temp_file.write_all(&buf)
+                    temp_file
+                        .write_all(&buf)
                         .map_err(|e| RangoError::Storage(e.to_string()))?;
                     kept += 1;
                 }
             }
         }
 
-        temp_file.sync_all()
+        temp_file
+            .sync_all()
             .map_err(|e| RangoError::Storage(e.to_string()))?;
-        std::fs::rename(&temp_path, &self.path)
-            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        std::fs::rename(&temp_path, &self.path).map_err(|e| RangoError::Storage(e.to_string()))?;
 
         info!(kept, "oplog compacted");
         Ok(kept)
     }
 }
 
-fn applied_file_path(path: &PathBuf) -> PathBuf {
-    let mut p = path.clone();
-    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+fn applied_file_path(path: &Path) -> PathBuf {
+    let mut p = path.to_path_buf();
+    let name = p
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     p.set_file_name(format!("{}.applied", name));
     p
 }
@@ -298,9 +317,8 @@ fn write_u32<W: Write>(writer: &mut W, value: u32) -> Result<(), RangoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rango_types::{Mutation, MutationOp, OplogOrigin, Revision};
     use bson::doc;
-    use std::time::SystemTime;
+    use rango_types::{Mutation, MutationOp, OplogOrigin, Revision};
 
     fn temp_path() -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};

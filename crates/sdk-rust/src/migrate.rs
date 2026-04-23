@@ -123,14 +123,14 @@ impl<S: StorageEngine> RangoClient<S> {
         let mut writer = BufWriter::new(file);
         let coll = CollectionName::new(collection);
 
-        let mut cursor = self.engine.find_many(&coll)?;
+        let cursor = self.engine.find_many(&coll)?;
         let mut exported = 0usize;
 
-        while let Some(result) = cursor.next() {
+        for result in cursor {
             let doc = result?;
             let json_str = match doc_to_json(&doc.data) {
                 Ok(s) => s,
-                Err(e) => {
+                Err(_e) => {
                     // Skip documents that can't be serialized
                     continue;
                 }
@@ -140,7 +140,9 @@ impl<S: StorageEngine> RangoClient<S> {
             exported += 1;
         }
 
-        writer.flush().map_err(|e| RangoError::Storage(e.to_string()))?;
+        writer
+            .flush()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         Ok(ExportResult { exported })
     }
 }
@@ -162,7 +164,9 @@ fn parse_mongo_json(line: &str) -> Result<Document, RangoError> {
 
     match bson_value {
         bson::Bson::Document(doc) => Ok(doc),
-        _ => Err(RangoError::Storage("Expected JSON object, got other type".to_string())),
+        _ => Err(RangoError::Storage(
+            "Expected JSON object, got other type".to_string(),
+        )),
     }
 }
 
@@ -196,36 +200,42 @@ fn json_to_bson(value: serde_json::Value) -> Result<bson::Bson, RangoError> {
                     match key.as_str() {
                         "$oid" => {
                             if let serde_json::Value::String(oid_str) = val {
-                                let oid = bson::oid::ObjectId::parse_str(oid_str)
-                                    .map_err(|e| RangoError::Storage(format!("Invalid ObjectId: {}", e)))?;
+                                let oid = bson::oid::ObjectId::parse_str(oid_str).map_err(|e| {
+                                    RangoError::Storage(format!("Invalid ObjectId: {}", e))
+                                })?;
                                 return Ok(bson::Bson::ObjectId(oid));
                             }
                         }
                         "$date" => {
                             if let serde_json::Value::String(date_str) = val {
-                                let dt = bson::DateTime::parse_rfc3339_str(date_str)
-                                    .map_err(|e| RangoError::Storage(format!("Invalid date: {}", e)))?;
+                                let dt =
+                                    bson::DateTime::parse_rfc3339_str(date_str).map_err(|e| {
+                                        RangoError::Storage(format!("Invalid date: {}", e))
+                                    })?;
                                 return Ok(bson::Bson::DateTime(dt));
                             }
                         }
                         "$numberInt" => {
                             if let serde_json::Value::String(s) = val {
-                                let i: i32 = s.parse()
-                                    .map_err(|e| RangoError::Storage(format!("Invalid Int32: {}", e)))?;
+                                let i: i32 = s.parse().map_err(|e| {
+                                    RangoError::Storage(format!("Invalid Int32: {}", e))
+                                })?;
                                 return Ok(bson::Bson::Int32(i));
                             }
                         }
                         "$numberLong" => {
                             if let serde_json::Value::String(s) = val {
-                                let i: i64 = s.parse()
-                                    .map_err(|e| RangoError::Storage(format!("Invalid Int64: {}", e)))?;
+                                let i: i64 = s.parse().map_err(|e| {
+                                    RangoError::Storage(format!("Invalid Int64: {}", e))
+                                })?;
                                 return Ok(bson::Bson::Int64(i));
                             }
                         }
                         "$numberDouble" => {
                             let f: f64 = match val {
-                                serde_json::Value::String(s) => s.parse()
-                                    .map_err(|e| RangoError::Storage(format!("Invalid Double: {}", e)))?,
+                                serde_json::Value::String(s) => s.parse().map_err(|e| {
+                                    RangoError::Storage(format!("Invalid Double: {}", e))
+                                })?,
                                 serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0),
                                 _ => 0.0,
                             };
@@ -258,7 +268,7 @@ fn doc_to_json(doc: &Document) -> Result<String, RangoError> {
 fn bson_to_json(value: bson::Bson) -> Result<serde_json::Value, RangoError> {
     match value {
         bson::Bson::Double(d) => Ok(serde_json::Value::Number(
-            serde_json::Number::from_f64(d).unwrap_or_else(|| serde_json::Number::from(0))
+            serde_json::Number::from_f64(d).unwrap_or_else(|| serde_json::Number::from(0)),
         )),
         bson::Bson::String(s) => Ok(serde_json::Value::String(s)),
         bson::Bson::Array(arr) => {
@@ -286,14 +296,20 @@ fn bson_to_json(value: bson::Bson) -> Result<serde_json::Value, RangoError> {
                 }
             }
             // Otherwise hex string
-            Ok(serde_json::Value::String(format!("<Binary {:02x?}>", bin.subtype)))
+            Ok(serde_json::Value::String(format!(
+                "<Binary {:02x?}>",
+                bin.subtype
+            )))
         }
         bson::Bson::Undefined => Ok(serde_json::Value::Null),
-        bson::Bson::RegularExpression(regex) => {
-            Ok(serde_json::Value::String(format!("/{}/{}", regex.pattern, regex.options)))
-        }
+        bson::Bson::RegularExpression(regex) => Ok(serde_json::Value::String(format!(
+            "/{}/{}",
+            regex.pattern, regex.options
+        ))),
         bson::Bson::JavaScriptCode(code) => Ok(serde_json::Value::String(code)),
-        bson::Bson::JavaScriptCodeWithScope(_) => Ok(serde_json::Value::String("[JS code with scope]".to_string())),
+        bson::Bson::JavaScriptCodeWithScope(_) => Ok(serde_json::Value::String(
+            "[JS code with scope]".to_string(),
+        )),
         bson::Bson::Timestamp(ts) => Ok(serde_json::Value::Number(ts.time.into())),
         bson::Bson::Decimal128(d) => Ok(serde_json::Value::String(d.to_string())),
         bson::Bson::MaxKey => Ok(serde_json::Value::String("$MaxKey".to_string())),
@@ -326,7 +342,9 @@ mod tests {
         writeln!(file, r#"{{"name": "Charlie", "age": 35}}"#).unwrap();
         file.flush().unwrap();
 
-        let result = client.import_json("people", file.path(), &NoOpProgress).unwrap();
+        let result = client
+            .import_json("people", file.path(), &NoOpProgress)
+            .unwrap();
         assert_eq!(result.imported, 3);
         assert_eq!(result.errors, 0);
 
@@ -341,10 +359,16 @@ mod tests {
         let client = create_test_client();
 
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"{{"_id": {{"$oid": "507f1f77bcf86cd799439011"}}, "name": "Alice"}}"#).unwrap();
+        writeln!(
+            file,
+            r#"{{"_id": {{"$oid": "507f1f77bcf86cd799439011"}}, "name": "Alice"}}"#
+        )
+        .unwrap();
         file.flush().unwrap();
 
-        let result = client.import_json("people", file.path(), &NoOpProgress).unwrap();
+        let result = client
+            .import_json("people", file.path(), &NoOpProgress)
+            .unwrap();
         assert_eq!(result.imported, 1);
 
         let coll = client.collection("people");
@@ -371,7 +395,9 @@ mod tests {
         writeln!(file, r#"{{"name": "Bob"}}"#).unwrap();
         file.flush().unwrap();
 
-        let result = client.import_json("people", file.path(), &NoOpProgress).unwrap();
+        let result = client
+            .import_json("people", file.path(), &NoOpProgress)
+            .unwrap();
         assert_eq!(result.imported, 2);
         assert_eq!(result.errors, 1);
     }
@@ -382,8 +408,10 @@ mod tests {
 
         // Insert some docs
         let coll = client.collection("people");
-        coll.insert_one(bson::doc! { "name": "Alice", "age": 30 }).unwrap();
-        coll.insert_one(bson::doc! { "name": "Bob", "age": 25 }).unwrap();
+        coll.insert_one(bson::doc! { "name": "Alice", "age": 30 })
+            .unwrap();
+        coll.insert_one(bson::doc! { "name": "Bob", "age": 25 })
+            .unwrap();
 
         let output = NamedTempFile::new().unwrap();
         let result = client.export_json("people", output.path()).unwrap();
@@ -409,7 +437,9 @@ mod tests {
         writeln!(file, r#"{{"int": {{"$numberInt": "42"}}, "long": {{"$numberLong": "9007199254740992"}}, "double": {{"$numberDouble": "3.14"}}, "date": {{"$date": "2024-01-15T10:30:00Z"}}}}"#).unwrap();
         file.flush().unwrap();
 
-        let result = client.import_json("types", file.path(), &NoOpProgress).unwrap();
+        let result = client
+            .import_json("types", file.path(), &NoOpProgress)
+            .unwrap();
         assert_eq!(result.imported, 1);
 
         let coll = client.collection("types");

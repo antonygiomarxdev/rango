@@ -31,7 +31,8 @@ impl SyncClient {
             last_checkpoint: checkpoint,
         };
         let url = format!("{}/push", self.server_url);
-        let resp = self.http
+        let resp = self
+            .http
             .post(&url)
             .header("X-Rango-Protocol-Version", "1")
             .header("Authorization", format!("Bearer {}", self.node_token))
@@ -59,7 +60,8 @@ impl SyncClient {
             since_checkpoint: checkpoint,
         };
         let url = format!("{}/pull", self.server_url);
-        let resp = self.http
+        let resp = self
+            .http
             .post(&url)
             .header("X-Rango-Protocol-Version", "1")
             .header("Authorization", format!("Bearer {}", self.node_token))

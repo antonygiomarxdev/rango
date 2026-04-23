@@ -1,5 +1,8 @@
-use rango_types::{CollectionName, DocumentId, RangoError};
 use bson::Document;
+use rango_types::{CollectionName, DocumentId, RangoError};
+
+pub type ScanIter = dyn Iterator<Item = Result<Document, RangoError>>;
+pub type RangeIter = dyn Iterator<Item = Result<(Vec<u8>, Document), RangoError>>;
 
 /// Core storage operations — backend-agnostic.
 pub trait StorageEngine: Send + Sync {
@@ -16,23 +19,16 @@ pub trait StorageEngine: Send + Sync {
         doc: &Document,
     ) -> Result<(), RangoError>;
 
-    fn delete(
-        &self,
-        collection: &CollectionName,
-        id: &DocumentId,
-    ) -> Result<bool, RangoError>;
+    fn delete(&self, collection: &CollectionName, id: &DocumentId) -> Result<bool, RangoError>;
 
-    fn scan(
-        &self,
-        collection: &CollectionName,
-    ) -> Result<Box<dyn Iterator<Item = Result<Document, RangoError>>>, RangoError>;
+    fn scan(&self, collection: &CollectionName) -> Result<Box<ScanIter>, RangoError>;
 
     fn range(
         &self,
         collection: &CollectionName,
         start: Option<&[u8]>,
         end: Option<&[u8]>,
-    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Document), RangoError>>>, RangoError>;
+    ) -> Result<Box<RangeIter>, RangoError>;
 }
 
 /// Transactional storage operations — optional depending on backend capabilities.

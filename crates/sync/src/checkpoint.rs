@@ -37,8 +37,7 @@ impl CheckpointStore for FileCheckpointStore {
         if !self.path.exists() {
             return Ok(Checkpoint::initial());
         }
-        let mut file = File::open(&self.path)
-            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut file = File::open(&self.path).map_err(|e| RangoError::Storage(e.to_string()))?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)
             .map_err(|e| RangoError::Storage(e.to_string()))?;
@@ -53,7 +52,8 @@ impl CheckpointStore for FileCheckpointStore {
             .map_err(|e| RangoError::Storage(format!("invalid UTF-8: {}", e)))?;
         let val: serde_json::Value = serde_json::from_str(&contents)
             .map_err(|e: serde_json::Error| RangoError::Storage(e.to_string()))?;
-        let seq = val.get("last_seq")
+        let seq = val
+            .get("last_seq")
             .and_then(|v: &serde_json::Value| v.as_u64())
             .unwrap_or(0);
         Ok(Checkpoint(seq))
@@ -65,8 +65,7 @@ impl CheckpointStore for FileCheckpointStore {
         if let Some(c) = &self.crypto {
             bytes = c.encrypt(&bytes);
         }
-        let mut file = File::create(&self.path)
-            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut file = File::create(&self.path).map_err(|e| RangoError::Storage(e.to_string()))?;
         file.write_all(&bytes)
             .map_err(|e| RangoError::Storage(e.to_string()))?;
         file.sync_all()

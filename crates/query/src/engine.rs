@@ -11,12 +11,18 @@ impl QueryEngine {
     }
 }
 
+impl Default for QueryEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Apply projection to a document.
 #[instrument(skip(doc, projection))]
 pub fn project(doc: &Document, projection: &Document) -> Result<Document, RangoError> {
     let mut result = Document::new();
     let is_inclusion = projection.values().any(|v| v.as_i32() == Some(1));
-    
+
     if is_inclusion {
         // Inclusion mode: only include specified fields + _id (unless excluded)
         for (key, value) in projection {
@@ -40,7 +46,7 @@ pub fn project(doc: &Document, projection: &Document) -> Result<Document, RangoE
             }
         }
     }
-    
+
     Ok(result)
 }
 
@@ -55,13 +61,14 @@ pub fn sort_key(doc: &Document, field: &str) -> Result<SortKey, RangoError> {
         Some(Bson::DateTime(v)) => Ok(SortKey::DateTime(*v)),
         Some(Bson::Null) => Ok(SortKey::Null),
         None => Ok(SortKey::Null),
-        Some(other) => Err(RangoError::InvalidQueryOperator(
-            format!("Cannot sort by field type: {:?}", other)
-        )),
+        Some(other) => Err(RangoError::InvalidQueryOperator(format!(
+            "Cannot sort by field type: {:?}",
+            other
+        ))),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SortKey {
     Null,
     Int64(i64),
@@ -72,8 +79,33 @@ pub enum SortKey {
 
 impl Eq for SortKey {}
 
+impl PartialOrd for SortKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for SortKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(std::cmp::Ordering::Equal)
+        use std::cmp::Ordering;
+
+        fn rank(key: &SortKey) -> u8 {
+            match key {
+                SortKey::Null => 0,
+                SortKey::Int64(_) => 1,
+                SortKey::Double(_) => 2,
+                SortKey::String(_) => 3,
+                SortKey::DateTime(_) => 4,
+            }
+        }
+
+        match (self, other) {
+            (SortKey::Null, SortKey::Null) => Ordering::Equal,
+            (SortKey::Int64(a), SortKey::Int64(b)) => a.cmp(b),
+            (SortKey::Double(a), SortKey::Double(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (SortKey::String(a), SortKey::String(b)) => a.cmp(b),
+            (SortKey::DateTime(a), SortKey::DateTime(b)) => a.cmp(b),
+            _ => rank(self).cmp(&rank(other)),
+        }
     }
 }

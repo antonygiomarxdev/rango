@@ -1,6 +1,6 @@
+use crate::Revision;
 use bson::Document;
 use serde::{Deserialize, Serialize};
-use crate::Revision;
 
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

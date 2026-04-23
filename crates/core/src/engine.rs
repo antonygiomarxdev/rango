@@ -1,7 +1,7 @@
+use bson::{Bson, Document};
 use rango_oplog::Oplog;
 use rango_storage::StorageEngine;
 use rango_types::*;
-use bson::{Document, Bson};
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
@@ -18,7 +18,11 @@ pub struct RangoEngine<S: StorageEngine> {
 }
 
 impl<S: StorageEngine> RangoEngine<S> {
-    pub fn open(storage: Arc<S>, oplog: Arc<dyn Oplog>, node_id: impl Into<String>) -> Result<Self, RangoError> {
+    pub fn open(
+        storage: Arc<S>,
+        oplog: Arc<dyn Oplog>,
+        node_id: impl Into<String>,
+    ) -> Result<Self, RangoError> {
         Self::open_with_config(storage, oplog, node_id, RangoConfig::default())
     }
 
@@ -65,11 +69,12 @@ impl<S: StorageEngine> RangoEngine<S> {
         doc: Document,
     ) -> Result<DocumentId, RangoError> {
         info!("inserting document");
-        let id = doc.get("_id")
+        let id = doc
+            .get("_id")
             .cloned()
             .map(DocumentId::from_bson)
             .unwrap_or_else(DocumentId::new_uuid_v7);
-        
+
         let rev = Revision::now(&self.node_id);
         let mut doc = doc;
         // Validate original document size first
@@ -81,7 +86,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         doc.remove("_deleted");
         // Validate again after metadata injection
         self.validate_document_size(&doc)?;
-        
+
         self.storage.put(collection, &id, &doc)?;
 
         let mutation = Mutation {
@@ -114,8 +119,12 @@ impl<S: StorageEngine> RangoEngine<S> {
         id: &DocumentId,
     ) -> Result<Option<RangoDocument>, RangoError> {
         self.metrics.record_find();
-        self.storage.get(collection, id)
-            .map(|opt: Option<Document>| opt.filter(|d| !is_deleted(d)).map(|doc| RangoDocument { data: doc }))
+        self.storage
+            .get(collection, id)
+            .map(|opt: Option<Document>| {
+                opt.filter(|d| !is_deleted(d))
+                    .map(|doc| RangoDocument { data: doc })
+            })
     }
 
     pub fn find_one_by_filter(
@@ -124,7 +133,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         filter: &Document,
     ) -> Result<Option<RangoDocument>, RangoError> {
         let mut cursor = self.find(collection, filter, None, None, None, None)?;
-        Ok(cursor.next().transpose()?)
+        cursor.next().transpose()
     }
 
     #[instrument(skip(self, filter, projection), fields(collection = %collection.0))]
@@ -138,13 +147,13 @@ impl<S: StorageEngine> RangoEngine<S> {
         limit: Option<usize>,
     ) -> Result<Cursor, RangoError> {
         let iter = self.storage.scan(collection)?;
-        
+
         let mut filtered = FilteredIter {
             iter,
             filter: filter.clone(),
             include_deleted: false,
         };
-        
+
         // If no sort is required, we can stream everything lazily
         if sort.is_none() {
             let filter_clone = filter.clone();
@@ -153,7 +162,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             let mut emitted = 0usize;
             let skip_val = skip.unwrap_or(0);
             let limit_val = limit;
-            
+
             let iter = Box::new(std::iter::from_fn(move || {
                 loop {
                     if let Some(limit) = limit_val {
@@ -183,15 +192,13 @@ impl<S: StorageEngine> RangoEngine<S> {
                     }
                 }
             }));
-            
+
             return Ok(Cursor { iter });
         }
-        
+
         // Sort requires full materialization
-        let mut docs: Vec<Document> = filtered
-            .filter_map(|res| res.ok())
-            .collect();
-        
+        let mut docs: Vec<Document> = filtered.filter_map(|res| res.ok()).collect();
+
         if let Some((field, desc)) = sort {
             docs.sort_by(|a, b| {
                 let ord = rango_query::sort_key(a, field)
@@ -200,15 +207,15 @@ impl<S: StorageEngine> RangoEngine<S> {
                 if desc { ord.reverse() } else { ord }
             });
         }
-        
+
         if let Some(n) = skip {
             docs = docs.into_iter().skip(n).collect();
         }
-        
+
         if let Some(n) = limit {
             docs.truncate(n);
         }
-        
+
         let projected: Vec<Document> = if let Some(proj) = projection {
             docs.into_iter()
                 .map(|doc| rango_query::project(&doc, proj).unwrap_or(doc))
@@ -216,7 +223,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         } else {
             docs
         };
-        
+
         let mut index = 0;
         let iter = Box::new(std::iter::from_fn(move || {
             if index >= projected.len() {
@@ -226,14 +233,11 @@ impl<S: StorageEngine> RangoEngine<S> {
             index += 1;
             Some(Ok(doc))
         }));
-        
+
         Ok(Cursor { iter })
     }
 
-    pub fn find_many(
-        &self,
-        collection: &CollectionName,
-    ) -> Result<Cursor, RangoError> {
+    pub fn find_many(&self, collection: &CollectionName) -> Result<Cursor, RangoError> {
         self.find(collection, &Document::new(), None, None, None, None)
     }
 
@@ -330,10 +334,7 @@ impl<S: StorageEngine> RangoEngine<S> {
     }
 
     /// List documents including deleted (tombstones).
-    pub fn find_all_raw(
-        &self,
-        collection: &CollectionName,
-    ) -> Result<Vec<Document>, RangoError> {
+    pub fn find_all_raw(&self, collection: &CollectionName) -> Result<Vec<Document>, RangoError> {
         let iter = self.storage.scan(collection)?;
         let filtered = FilteredIter {
             iter,
@@ -350,21 +351,27 @@ impl<S: StorageEngine> RangoEngine<S> {
         collection: &CollectionName,
         mut doc: Document,
     ) -> Result<(), RangoError> {
-        let remote_rev = doc.get_str("_rev").ok().and_then(|s| Revision::from_str(s).ok());
+        let remote_rev = doc
+            .get_str("_rev")
+            .ok()
+            .and_then(|s| Revision::from_str(s).ok());
         info!(?remote_rev, "applying remote mutation");
-        let id = doc.get("_id")
+        let id = doc
+            .get("_id")
             .cloned()
             .map(DocumentId::from_bson)
             .ok_or_else(|| RangoError::DocumentNotFound("missing _id".to_string()))?;
 
-        let remote_rev = doc.get_str("_rev")
+        let remote_rev = doc
+            .get_str("_rev")
             .ok()
             .and_then(|s| Revision::from_str(s).ok())
             .unwrap_or_else(|| Revision::initial(""));
 
         match self.storage.get(collection, &id)? {
             Some(local_doc) if !is_deleted(&local_doc) => {
-                let local_rev = local_doc.get_str("_rev")
+                let local_rev = local_doc
+                    .get_str("_rev")
                     .ok()
                     .and_then(|s| Revision::from_str(s).ok())
                     .unwrap_or_else(|| Revision::initial(""));
@@ -390,9 +397,10 @@ impl<S: StorageEngine> RangoEngine<S> {
     }
 
     fn add_conflict(&self, loser: &Document, winner: &mut Document) -> Result<(), RangoError> {
-        let conflicts = winner.entry("_conflicts")
+        let conflicts = winner
+            .entry("_conflicts")
             .or_insert_with(|| Bson::Array(Vec::new()));
-        
+
         if let Bson::Array(arr) = conflicts {
             arr.push(Bson::Document(loser.clone()));
             // Limit to 10 most recent conflicts (FIFO)
@@ -417,11 +425,13 @@ impl<S: StorageEngine> RangoEngine<S> {
                 continue;
             }
             if let Ok(arr) = doc.get_array("_conflicts") {
-                let conflicts: Vec<Document> = arr.iter()
+                let conflicts: Vec<Document> = arr
+                    .iter()
                     .filter_map(|b| b.as_document().cloned())
                     .collect();
                 if !conflicts.is_empty() {
-                    let id = doc.get("_id")
+                    let id = doc
+                        .get("_id")
                         .cloned()
                         .map(DocumentId::from_bson)
                         .unwrap_or_else(DocumentId::new_uuid_v7);
@@ -445,12 +455,13 @@ impl<S: StorageEngine> RangoEngine<S> {
             None => return Err(RangoError::DocumentNotFound(id.to_string())),
         };
 
-        let arr = doc.get_array("_conflicts")
+        let arr = doc
+            .get_array("_conflicts")
             .map_err(|_| RangoError::Conflict("No conflicts found".to_string()))?;
-        
+
         let mut new_conflicts = Vec::new();
         let mut chosen_doc = None;
-        
+
         for item in arr {
             if let Some(conflict_doc) = item.as_document() {
                 if let Ok(rev_str) = conflict_doc.get_str("_rev") {
@@ -465,9 +476,10 @@ impl<S: StorageEngine> RangoEngine<S> {
             }
         }
 
-        let mut chosen_doc = chosen_doc
-            .ok_or_else(|| RangoError::Conflict("Chosen revision not found in conflicts".to_string()))?;
-        
+        let mut chosen_doc = chosen_doc.ok_or_else(|| {
+            RangoError::Conflict("Chosen revision not found in conflicts".to_string())
+        })?;
+
         // Keep remaining conflicts in the chosen document
         if !new_conflicts.is_empty() {
             chosen_doc.insert("_conflicts", Bson::Array(new_conflicts));
@@ -512,7 +524,8 @@ impl Iterator for Cursor {
     type Item = Result<RangoDocument, RangoError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+        self.iter
+            .next()
             .map(|res: Result<Document, RangoError>| res.map(|doc| RangoDocument { data: doc }))
     }
 }

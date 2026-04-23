@@ -1,6 +1,6 @@
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
 use rand::RngCore;
 use rango_types::RangoError;
@@ -33,7 +33,9 @@ impl CryptoEngine {
         let mut nonce_bytes = [0u8; 12];
         rand::thread_rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
-        let ciphertext = self.cipher.encrypt(nonce, plaintext)
+        let ciphertext = self
+            .cipher
+            .encrypt(nonce, plaintext)
             .expect("encryption should not fail with valid nonce");
         let mut result = Vec::with_capacity(12 + ciphertext.len());
         result.extend_from_slice(&nonce_bytes);
@@ -45,11 +47,12 @@ impl CryptoEngine {
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, RangoError> {
         if ciphertext.len() < 12 {
             return Err(RangoError::Storage(
-                "ciphertext too short (missing nonce)".to_string()
+                "ciphertext too short (missing nonce)".to_string(),
             ));
         }
         let nonce = Nonce::from_slice(&ciphertext[..12]);
-        let plaintext = self.cipher
+        let plaintext = self
+            .cipher
             .decrypt(nonce, &ciphertext[12..])
             .map_err(|e| RangoError::Storage(format!("decryption failed: {}", e)))?;
         Ok(plaintext)

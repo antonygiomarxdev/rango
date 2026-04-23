@@ -15,7 +15,7 @@ pub fn matches(doc: &Document, filter: &Document) -> Result<bool, RangoError> {
 
 fn match_operator(doc: &Document, key: &str, value: &Bson) -> Result<bool, RangoError> {
     match key {
-        "$and" => match_array(doc, value, |d, f| matches(d, f)),
+        "$and" => match_array(doc, value, matches),
         "$or" => match_array_or(doc, value),
         _ => {
             // Field operator or simple equality
@@ -41,12 +41,18 @@ fn match_array(
                             return Ok(false);
                         }
                     }
-                    None => return Err(RangoError::InvalidQueryOperator("$and/$or expects array of documents".to_string())),
+                    None => {
+                        return Err(RangoError::InvalidQueryOperator(
+                            "$and/$or expects array of documents".to_string(),
+                        ));
+                    }
                 }
             }
             Ok(true)
         }
-        None => Err(RangoError::InvalidQueryOperator("$and/$or expects array".to_string())),
+        None => Err(RangoError::InvalidQueryOperator(
+            "$and/$or expects array".to_string(),
+        )),
     }
 }
 
@@ -63,12 +69,18 @@ fn match_array_or(doc: &Document, value: &Bson) -> Result<bool, RangoError> {
                             return Ok(true);
                         }
                     }
-                    None => return Err(RangoError::InvalidQueryOperator("$or expects array of documents".to_string())),
+                    None => {
+                        return Err(RangoError::InvalidQueryOperator(
+                            "$or expects array of documents".to_string(),
+                        ));
+                    }
                 }
             }
             Ok(false)
         }
-        None => Err(RangoError::InvalidQueryOperator("$or expects array".to_string())),
+        None => Err(RangoError::InvalidQueryOperator(
+            "$or expects array".to_string(),
+        )),
     }
 }
 
@@ -181,7 +193,9 @@ fn compare_in(field_value: Option<&Bson>, array: &Bson) -> Result<bool, RangoErr
             }
             Ok(false)
         }
-        None => Err(RangoError::InvalidQueryOperator("$in expects array".to_string())),
+        None => Err(RangoError::InvalidQueryOperator(
+            "$in expects array".to_string(),
+        )),
     }
 }
 
@@ -189,33 +203,29 @@ fn compare_values(a: &Bson, b: &Bson) -> Result<std::cmp::Ordering, RangoError> 
     match (a, b) {
         (Bson::Int32(a), Bson::Int32(b)) => Ok(a.cmp(b)),
         (Bson::Int64(a), Bson::Int64(b)) => Ok(a.cmp(b)),
-        (Bson::Double(a), Bson::Double(b)) => {
-            a.partial_cmp(b)
-                .ok_or_else(|| RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string()))
-        }
+        (Bson::Double(a), Bson::Double(b)) => a.partial_cmp(b).ok_or_else(|| {
+            RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string())
+        }),
         (Bson::String(a), Bson::String(b)) => Ok(a.cmp(b)),
         (Bson::DateTime(a), Bson::DateTime(b)) => Ok(a.cmp(b)),
         // Cross-type numeric comparisons
         (Bson::Int32(a), Bson::Int64(b)) => Ok((*a as i64).cmp(b)),
         (Bson::Int64(a), Bson::Int32(b)) => Ok(a.cmp(&(*b as i64))),
-        (Bson::Int32(a), Bson::Double(b)) => {
-            (*a as f64).partial_cmp(b)
-                .ok_or_else(|| RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string()))
-        }
-        (Bson::Double(a), Bson::Int32(b)) => {
-            a.partial_cmp(&(*b as f64))
-                .ok_or_else(|| RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string()))
-        }
-        (Bson::Int64(a), Bson::Double(b)) => {
-            (*a as f64).partial_cmp(b)
-                .ok_or_else(|| RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string()))
-        }
-        (Bson::Double(a), Bson::Int64(b)) => {
-            a.partial_cmp(&(*b as f64))
-                .ok_or_else(|| RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string()))
-        }
-        _ => Err(RangoError::InvalidQueryOperator(
-            format!("Cannot compare {:?} with {:?}", a, b)
-        )),
+        (Bson::Int32(a), Bson::Double(b)) => (*a as f64).partial_cmp(b).ok_or_else(|| {
+            RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string())
+        }),
+        (Bson::Double(a), Bson::Int32(b)) => a.partial_cmp(&(*b as f64)).ok_or_else(|| {
+            RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string())
+        }),
+        (Bson::Int64(a), Bson::Double(b)) => (*a as f64).partial_cmp(b).ok_or_else(|| {
+            RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string())
+        }),
+        (Bson::Double(a), Bson::Int64(b)) => a.partial_cmp(&(*b as f64)).ok_or_else(|| {
+            RangoError::InvalidQueryOperator("Cannot compare NaN values".to_string())
+        }),
+        _ => Err(RangoError::InvalidQueryOperator(format!(
+            "Cannot compare {:?} with {:?}",
+            a, b
+        ))),
     }
 }

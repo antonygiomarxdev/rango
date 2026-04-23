@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use axum::{extract::Json, http::StatusCode, Extension};
+use axum::{Extension, extract::Json, http::StatusCode};
 use rango_oplog::Oplog;
-use rango_types::{Checkpoint, Mutation, OplogEntry, OplogOrigin, RangoError};
 use rango_sync::protocol::{PullRequest, PullResponse, PushRequest, PushResponse};
-use tracing::{info, instrument, warn};
+use rango_types::{Checkpoint, Mutation, OplogEntry, OplogOrigin, RangoError};
+use tracing::{info, instrument};
 
 pub struct ServerState {
     pub oplog: Arc<dyn Oplog>,
@@ -21,7 +21,10 @@ impl ServerState {
     }
 
     pub fn add_token(&self, token: impl Into<String>, node_id: impl Into<String>) {
-        self.tokens.lock().unwrap().insert(token.into(), node_id.into());
+        self.tokens
+            .lock()
+            .unwrap()
+            .insert(token.into(), node_id.into());
     }
 
     fn validate_token(&self, auth_header: Option<&str>) -> Option<String> {
@@ -38,21 +41,21 @@ pub async fn handle_push(
 ) -> Result<Json<PushResponse>, StatusCode> {
     info!(mutations = req.mutations.len(), "handling push");
     // Validate protocol version
-    let protocol_version = headers.get("X-Rango-Protocol-Version")
+    let protocol_version = headers
+        .get("X-Rango-Protocol-Version")
         .and_then(|v| v.to_str().ok());
     if protocol_version != Some("1") {
         return Err(StatusCode::BAD_REQUEST);
     }
 
     // Validate auth token
-    let auth = headers.get("Authorization")
-        .and_then(|v| v.to_str().ok());
-    let _node_id = state.validate_token(auth)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
+    let _node_id = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
 
     let mut accepted_seqs = Vec::new();
     for mutation in req.mutations {
-        let seq = append_mutation(&state, mutation).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let seq =
+            append_mutation(&state, mutation).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         accepted_seqs.push(seq);
     }
 
@@ -72,19 +75,19 @@ pub async fn handle_pull(
 ) -> Result<Json<PullResponse>, StatusCode> {
     info!(since = req.since_checkpoint.0, "handling pull");
     // Validate protocol version
-    let protocol_version = headers.get("X-Rango-Protocol-Version")
+    let protocol_version = headers
+        .get("X-Rango-Protocol-Version")
         .and_then(|v| v.to_str().ok());
     if protocol_version != Some("1") {
         return Err(StatusCode::BAD_REQUEST);
     }
 
     // Validate auth token
-    let auth = headers.get("Authorization")
-        .and_then(|v| v.to_str().ok());
-    let _node_id = state.validate_token(auth)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
+    let _node_id = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let entries = state.oplog
+    let entries = state
+        .oplog
         .read_since(req.since_checkpoint.0 + 1, 1000)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -101,7 +104,7 @@ fn append_mutation(state: &ServerState, mutation: Mutation) -> Result<u64, Rango
     // Simple idempotency check: deduplicate by write_id
     // For MVP, scan recent entries (last 1000) to check for duplicate write_id
     let latest = state.oplog.latest_seq()?;
-    let since = if latest > 1000 { latest - 1000 } else { 0 };
+    let since = latest.saturating_sub(1000);
     let recent = state.oplog.read_since(since, 1000)?;
     for entry in recent {
         if entry.mutation.write_id == mutation.write_id {

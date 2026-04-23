@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use bson::doc;
 use rango_oplog::FileOplog;
 use rango_server::{app, routes::ServerState};
 use rango_sync::client::SyncClient;
 use rango_types::{Checkpoint, Mutation, MutationOp, Revision};
-use bson::doc;
 
 fn dummy_mutation(seq: u64) -> Mutation {
     Mutation {
@@ -41,18 +41,27 @@ async fn test_e2e_push_and_pull() {
 
     // Push 2 mutations
     let mutations = vec![dummy_mutation(1), dummy_mutation(2)];
-    let push_resp = client.push("client-1", mutations, Checkpoint::initial()).await.unwrap();
+    let push_resp = client
+        .push("client-1", mutations, Checkpoint::initial())
+        .await
+        .unwrap();
     assert_eq!(push_resp.accepted_seqs.len(), 2);
     assert_eq!(push_resp.new_checkpoint.0, 2);
 
     // Pull from checkpoint 0
-    let pull_resp = client.pull("client-1", Checkpoint::initial()).await.unwrap();
+    let pull_resp = client
+        .pull("client-1", Checkpoint::initial())
+        .await
+        .unwrap();
     assert_eq!(pull_resp.mutations.len(), 2);
     assert_eq!(pull_resp.new_checkpoint.0, 2);
 
     // Idempotency: push same mutations again
     let mutations = vec![dummy_mutation(1), dummy_mutation(2)];
-    let push_resp2 = client.push("client-1", mutations, Checkpoint(2)).await.unwrap();
+    let push_resp2 = client
+        .push("client-1", mutations, Checkpoint(2))
+        .await
+        .unwrap();
     // Server should return same seqs (idempotent)
     assert_eq!(push_resp2.accepted_seqs.len(), 2);
 
@@ -88,8 +97,9 @@ fn temp_oplog_path() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
     std::env::temp_dir()
-        .join(format!("rango-e2e-oplog-{}.rgo", n))
+        .join(format!("rango-e2e-oplog-{}-{}.rgo", pid, n))
         .to_string_lossy()
         .to_string()
 }

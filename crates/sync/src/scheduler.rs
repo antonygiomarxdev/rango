@@ -57,7 +57,11 @@ impl SyncScheduler {
 
             match client.push(node_id, mutations, checkpoint).await {
                 Ok(resp) => {
-                    info!("Pushed {} mutations, checkpoint {:?}", seqs.len(), resp.new_checkpoint);
+                    info!(
+                        "Pushed {} mutations, checkpoint {:?}",
+                        seqs.len(),
+                        resp.new_checkpoint
+                    );
                     queue.mark_acked(&resp.accepted_seqs)?;
                     checkpoint_store.set(resp.new_checkpoint)?;
                     result.pushed = resp.accepted_seqs.len();
@@ -75,7 +79,11 @@ impl SyncScheduler {
         let checkpoint = checkpoint_store.get()?;
         match client.pull(node_id, checkpoint).await {
             Ok(resp) => {
-                info!("Pulled {} mutations, checkpoint {:?}", resp.mutations.len(), resp.new_checkpoint);
+                info!(
+                    "Pulled {} mutations, checkpoint {:?}",
+                    resp.mutations.len(),
+                    resp.new_checkpoint
+                );
                 result.pulled = resp.mutations.len();
                 checkpoint_store.set(resp.new_checkpoint)?;
             }

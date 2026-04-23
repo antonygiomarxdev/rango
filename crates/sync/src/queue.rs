@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use bson::Document;
 use rango_storage::CryptoEngine;
-use rango_types::{RangoError, SyncQueueEntry, QueueState};
+use rango_types::{QueueState, RangoError, SyncQueueEntry};
 
 /// Persistent sync queue with transitional states.
 pub trait SyncQueue: Send + Sync {
@@ -85,8 +85,7 @@ impl FileSyncQueue {
     }
 
     fn write_all(&self, mem: &QueueStateMem) -> Result<(), RangoError> {
-        let mut file = File::create(&self.path)
-            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut file = File::create(&self.path).map_err(|e| RangoError::Storage(e.to_string()))?;
         for entry in mem.entries.values() {
             let doc = bson::ser::serialize_to_document(entry)
                 .map_err(|e: bson::error::Error| RangoError::Storage(e.to_string()))?;
@@ -108,9 +107,12 @@ impl FileSyncQueue {
 
 impl SyncQueue for FileSyncQueue {
     fn enqueue(&self, seq: u64) -> Result<(), RangoError> {
-        let mut mem = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
-        if !mem.entries.contains_key(&seq) {
-            mem.entries.insert(seq, SyncQueueEntry {
+        let mut mem = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = mem.entries.entry(seq) {
+            entry.insert(SyncQueueEntry {
                 seq,
                 state: QueueState::Pending,
                 retries: 0,
@@ -122,12 +124,16 @@ impl SyncQueue for FileSyncQueue {
     }
 
     fn next_batch(&self, limit: usize) -> Result<Vec<SyncQueueEntry>, RangoError> {
-        let mut mem = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
-        let mut batch: Vec<_> = mem.entries
+        let mut mem = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut batch: Vec<_> = mem
+            .entries
             .values()
             .filter(|e| matches!(e.state, QueueState::Pending))
-            .cloned()
             .take(limit)
+            .cloned()
             .collect();
 
         for entry in &mut batch {
@@ -141,7 +147,10 @@ impl SyncQueue for FileSyncQueue {
     }
 
     fn mark_inflight(&self, seqs: &[u64]) -> Result<(), RangoError> {
-        let mut mem = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut mem = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         for seq in seqs {
             if let Some(entry) = mem.entries.get_mut(seq) {
                 entry.state = QueueState::Inflight;
@@ -152,7 +161,10 @@ impl SyncQueue for FileSyncQueue {
     }
 
     fn mark_acked(&self, seqs: &[u64]) -> Result<(), RangoError> {
-        let mut mem = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut mem = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         for seq in seqs {
             if let Some(entry) = mem.entries.get_mut(seq) {
                 entry.state = QueueState::Acked;
@@ -163,7 +175,10 @@ impl SyncQueue for FileSyncQueue {
     }
 
     fn mark_failed(&self, seq: u64, error: String) -> Result<(), RangoError> {
-        let mut mem = self.state.lock().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut mem = self
+            .state
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         if let Some(entry) = mem.entries.get_mut(&seq) {
             entry.state = QueueState::Failed;
             entry.retries += 1;
@@ -209,7 +224,11 @@ mod tests {
 
         let batch = queue.next_batch(10).unwrap();
         assert_eq!(batch.len(), 3);
-        assert!(batch.iter().all(|e| matches!(e.state, QueueState::Inflight)));
+        assert!(
+            batch
+                .iter()
+                .all(|e| matches!(e.state, QueueState::Inflight))
+        );
     }
 
     #[test]

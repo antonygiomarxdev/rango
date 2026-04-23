@@ -1,8 +1,8 @@
+use bson::Document;
 use rango_core::RangoEngine;
 use rango_oplog::Oplog;
 use rango_storage::StorageEngine;
 use rango_types::*;
-use bson::Document;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -35,7 +35,7 @@ impl<S: StorageEngine> RangoClient<S> {
         })
     }
 
-    pub fn collection(&self, name: &str) -> CollectionClient<S> {
+    pub fn collection(&self, name: &str) -> CollectionClient<'_, S> {
         CollectionClient {
             client: self,
             name: CollectionName::new(name),

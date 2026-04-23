@@ -6,13 +6,15 @@ use bson::Document;
 use rango_types::{CollectionName, DocumentId, RangoError};
 use tracing::instrument;
 
-use crate::StorageEngine;
+use crate::{RangeIter, ScanIter, StorageEngine};
+
+type MemoryCollections = HashMap<String, HashMap<Vec<u8>, Vec<u8>>>;
 
 /// In-memory storage backend for testing and development.
 /// Not suitable for production — data is lost when process exits.
 #[derive(Debug, Clone, Default)]
 pub struct MemoryStorage {
-    data: Arc<RwLock<HashMap<String, HashMap<Vec<u8>, Vec<u8>>>>>,
+    data: Arc<RwLock<MemoryCollections>>,
 }
 
 impl MemoryStorage {
@@ -37,9 +39,12 @@ impl StorageEngine for MemoryStorage {
         collection: &CollectionName,
         id: &DocumentId,
     ) -> Result<Option<Document>, RangoError> {
-        let data = self.data.read().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         let coll = data.get(&collection.0);
-        
+
         match coll {
             Some(coll_data) => {
                 let key = Self::encode_key(collection, id);
@@ -63,26 +68,28 @@ impl StorageEngine for MemoryStorage {
         id: &DocumentId,
         doc: &Document,
     ) -> Result<(), RangoError> {
-        let mut data = self.data.write().map_err(|e| RangoError::Storage(e.to_string()))?;
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         let coll = data.entry(collection.0.clone()).or_default();
-        
+
         let key = Self::encode_key(collection, id);
         let mut bytes = Vec::new();
         doc.to_writer(&mut bytes)
             .map_err(|e| RangoError::Storage(e.to_string()))?;
         coll.insert(key, bytes);
-        
+
         Ok(())
     }
 
     #[instrument(skip(self), fields(collection = %collection.0))]
-    fn delete(
-        &self,
-        collection: &CollectionName,
-        id: &DocumentId,
-    ) -> Result<bool, RangoError> {
-        let mut data = self.data.write().map_err(|e| RangoError::Storage(e.to_string()))?;
-        
+    fn delete(&self, collection: &CollectionName, id: &DocumentId) -> Result<bool, RangoError> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
+
         match data.get_mut(&collection.0) {
             Some(coll_data) => {
                 let key = Self::encode_key(collection, id);
@@ -93,18 +100,20 @@ impl StorageEngine for MemoryStorage {
     }
 
     #[instrument(skip(self), fields(collection = %collection.0))]
-    fn scan(
-        &self,
-        collection: &CollectionName,
-    ) -> Result<Box<dyn Iterator<Item = Result<Document, RangoError>>>, RangoError> {
-        let data = self.data.read().map_err(|e| RangoError::Storage(e.to_string()))?;
+    fn scan(&self, collection: &CollectionName) -> Result<Box<ScanIter>, RangoError> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         let coll_data = data.get(&collection.0).cloned();
-        
+
         let iter = MemoryScanIter {
-            items: coll_data.map(|c| c.values().cloned().collect()).unwrap_or_default(),
+            items: coll_data
+                .map(|c| c.values().cloned().collect())
+                .unwrap_or_default(),
             index: 0,
         };
-        
+
         Ok(Box::new(iter))
     }
 
@@ -114,7 +123,7 @@ impl StorageEngine for MemoryStorage {
         _collection: &CollectionName,
         _start: Option<&[u8]>,
         _end: Option<&[u8]>,
-    ) -> Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Document), RangoError>>>, RangoError> {
+    ) -> Result<Box<RangeIter>, RangoError> {
         Ok(Box::new(std::iter::empty()))
     }
 }
@@ -131,13 +140,13 @@ impl Iterator for MemoryScanIter {
         if self.index >= self.items.len() {
             return None;
         }
-        
+
         let bytes = &self.items[self.index];
         self.index += 1;
-        
+
         Some(
             Document::from_reader(&mut Cursor::new(bytes))
-                .map_err(|e| RangoError::Storage(e.to_string()))
+                .map_err(|e| RangoError::Storage(e.to_string())),
         )
     }
 }

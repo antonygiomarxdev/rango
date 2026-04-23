@@ -4,7 +4,7 @@ use bson::doc;
 use rango_core::RangoEngine;
 use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
-use rango_types::{CollectionName, DocumentId, Revision};
+use rango_types::{CollectionName, DocumentId, Mutation, MutationOp, Revision};
 use std::str::FromStr;
 
 fn setup(node_id: &str) -> RangoEngine<MemoryStorage> {
@@ -148,4 +148,101 @@ fn test_tombstone_sync() {
     let raw = engine_a.find_all_raw(&coll).unwrap();
     assert_eq!(raw.len(), 1);
     assert!(raw[0].get_bool("_deleted").unwrap());
+}
+
+#[test]
+fn test_phase8_metrics_local_write_latency() {
+    let engine = setup("node-a");
+    let coll = CollectionName::new("metrics");
+
+    let id = engine.insert_one(&coll, doc! { "name": "Alice" }).unwrap();
+    engine
+        .update_one(&coll, &id, doc! { "$set": { "name": "Alice 2" } })
+        .unwrap();
+    engine.delete_one(&coll, &id).unwrap();
+
+    let snapshot = engine.metrics().snapshot();
+    assert!(snapshot.local_write_latency_us_count >= 3);
+    assert!(snapshot.local_write_latency_us_total > 0);
+}
+
+#[test]
+fn test_phase8_metrics_replay_duration_and_drift() {
+    let engine = setup("node-a");
+    let coll = CollectionName::new("metrics-replay");
+
+    let id_a = DocumentId::new_uuid_v7();
+    let id_b = DocumentId::new_uuid_v7();
+    let rev = Revision::now("node-a");
+
+    let mut_a = Mutation {
+        op: MutationOp::Insert,
+        collection: coll.0.clone(),
+        doc_id: id_a.clone(),
+        patch: Some(doc! {
+            "_id": id_a.0.clone(),
+            "_rev": rev.to_string(),
+            "name": "A"
+        }),
+        seq: 2,
+        timestamp: bson::DateTime::now(),
+        rev: rev.clone(),
+        write_id: "write-1".to_string(),
+        metadata: rango_types::MutationMetadata {
+            id: id_a.clone(),
+            namespace: coll.0.clone(),
+            tenant_id: "tenant-a".to_string(),
+            r#type: "state".to_string(),
+            rev: rev.clone(),
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "node-a".to_string(),
+            actor: "node-a".to_string(),
+            lineage: id_a.to_string(),
+            schema_version: 1,
+            trust_score: 0.9,
+            verified: Some(true),
+            expires_at: None,
+        },
+    };
+    let mut_b = Mutation {
+        op: MutationOp::Insert,
+        collection: coll.0.clone(),
+        doc_id: id_b.clone(),
+        patch: Some(doc! {
+            "_id": id_b.0.clone(),
+            "_rev": rev.to_string(),
+            "name": "B"
+        }),
+        seq: 1,
+        timestamp: bson::DateTime::now(),
+        rev,
+        write_id: "write-1".to_string(),
+        metadata: rango_types::MutationMetadata {
+            id: id_b.clone(),
+            namespace: coll.0.clone(),
+            tenant_id: "tenant-a".to_string(),
+            r#type: "state".to_string(),
+            rev: Revision::now("node-a"),
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "node-a".to_string(),
+            actor: "node-a".to_string(),
+            lineage: id_b.to_string(),
+            schema_version: 1,
+            trust_score: 0.9,
+            verified: Some(true),
+            expires_at: None,
+        },
+    };
+
+    // Out-of-order + duplicate write_id should increment drift detection count.
+    engine
+        .apply_mutations_deterministic(&coll, vec![mut_a, mut_b])
+        .unwrap();
+
+    let snapshot = engine.metrics().snapshot();
+    assert!(snapshot.replay_duration_us_count >= 1);
+    assert!(snapshot.replay_duration_us_total > 0);
+    assert!(snapshot.replay_drift_detection_count >= 1);
 }

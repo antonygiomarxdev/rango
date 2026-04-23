@@ -329,15 +329,33 @@ mod tests {
     }
 
     fn dummy_mutation() -> Mutation {
+        let doc_id = rango_types::DocumentId::new_uuid_v7();
+        let rev = Revision::now("node-a");
         Mutation {
             op: MutationOp::Insert,
             collection: "test".to_string(),
-            doc_id: rango_types::DocumentId::new_uuid_v7(),
+            doc_id: doc_id.clone(),
             patch: Some(doc! { "name": "Alice" }),
             seq: 0,
             timestamp: bson::DateTime::now(),
-            rev: Revision::now("node-a"),
+            rev: rev.clone(),
             write_id: "test-write-id".to_string(),
+            metadata: rango_types::MutationMetadata {
+                id: doc_id.clone(),
+                namespace: "test".to_string(),
+                tenant_id: "tenant-a".to_string(),
+                r#type: "state".to_string(),
+                rev,
+                created_at: bson::DateTime::now(),
+                updated_at: bson::DateTime::now(),
+                source: "node-a".to_string(),
+                actor: "node-a".to_string(),
+                lineage: doc_id.to_string(),
+                schema_version: 1,
+                trust_score: 1.0,
+                verified: Some(true),
+                expires_at: None,
+            },
         }
     }
 

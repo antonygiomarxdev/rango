@@ -2,8 +2,10 @@ use bson::{Bson, Document};
 use rango_oplog::Oplog;
 use rango_storage::StorageEngine;
 use rango_types::*;
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, instrument, warn};
 
 use crate::metrics::Metrics;
@@ -68,6 +70,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         collection: &CollectionName,
         doc: Document,
     ) -> Result<DocumentId, RangoError> {
+        let start = Instant::now();
         info!("inserting document");
         let id = doc
             .get("_id")
@@ -96,8 +99,24 @@ impl<S: StorageEngine> RangoEngine<S> {
             patch: Some(doc.clone()),
             seq: 0,
             timestamp: bson::DateTime::now(),
-            rev,
+            rev: rev.clone(),
             write_id: String::new(),
+            metadata: MutationMetadata {
+                id: id.clone(),
+                namespace: collection.0.clone(),
+                tenant_id: "default".to_string(),
+                r#type: "state".to_string(),
+                rev,
+                created_at: bson::DateTime::now(),
+                updated_at: bson::DateTime::now(),
+                source: self.node_id.clone(),
+                actor: self.node_id.clone(),
+                lineage: id.to_string(),
+                schema_version: 1,
+                trust_score: 1.0,
+                verified: Some(true),
+                expires_at: None,
+            },
         };
         let entry = OplogEntry {
             seq: 0,
@@ -108,6 +127,8 @@ impl<S: StorageEngine> RangoEngine<S> {
         };
         self.oplog.append(entry)?;
         self.metrics.record_insert();
+        self.metrics
+            .record_local_write_latency_us(start.elapsed().as_micros() as u64);
 
         Ok(id)
     }
@@ -248,6 +269,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         id: &DocumentId,
         update: Document,
     ) -> Result<bool, RangoError> {
+        let start = Instant::now();
         info!("updating document");
         let mut doc = match self.storage.get(collection, id)? {
             Some(d) => d,
@@ -274,8 +296,24 @@ impl<S: StorageEngine> RangoEngine<S> {
             patch: Some(doc.clone()),
             seq: 0,
             timestamp: bson::DateTime::now(),
-            rev,
+            rev: rev.clone(),
             write_id: String::new(),
+            metadata: MutationMetadata {
+                id: id.clone(),
+                namespace: collection.0.clone(),
+                tenant_id: "default".to_string(),
+                r#type: "state".to_string(),
+                rev,
+                created_at: bson::DateTime::now(),
+                updated_at: bson::DateTime::now(),
+                source: self.node_id.clone(),
+                actor: self.node_id.clone(),
+                lineage: id.to_string(),
+                schema_version: 1,
+                trust_score: 1.0,
+                verified: Some(true),
+                expires_at: None,
+            },
         };
         let entry = OplogEntry {
             seq: 0,
@@ -286,6 +324,8 @@ impl<S: StorageEngine> RangoEngine<S> {
         };
         self.oplog.append(entry)?;
         self.metrics.record_update();
+        self.metrics
+            .record_local_write_latency_us(start.elapsed().as_micros() as u64);
 
         Ok(true)
     }
@@ -296,6 +336,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         collection: &CollectionName,
         id: &DocumentId,
     ) -> Result<bool, RangoError> {
+        let start = Instant::now();
         info!("deleting document (tombstone)");
         let mut doc = match self.storage.get(collection, id)? {
             Some(d) => d,
@@ -317,8 +358,24 @@ impl<S: StorageEngine> RangoEngine<S> {
             patch: None,
             seq: 0,
             timestamp: bson::DateTime::now(),
-            rev,
+            rev: rev.clone(),
             write_id: String::new(),
+            metadata: MutationMetadata {
+                id: id.clone(),
+                namespace: collection.0.clone(),
+                tenant_id: "default".to_string(),
+                r#type: "state".to_string(),
+                rev,
+                created_at: bson::DateTime::now(),
+                updated_at: bson::DateTime::now(),
+                source: self.node_id.clone(),
+                actor: self.node_id.clone(),
+                lineage: id.to_string(),
+                schema_version: 1,
+                trust_score: 1.0,
+                verified: Some(true),
+                expires_at: None,
+            },
         };
         let entry = OplogEntry {
             seq: 0,
@@ -329,6 +386,8 @@ impl<S: StorageEngine> RangoEngine<S> {
         };
         self.oplog.append(entry)?;
         self.metrics.record_delete();
+        self.metrics
+            .record_local_write_latency_us(start.elapsed().as_micros() as u64);
 
         Ok(true)
     }
@@ -394,6 +453,86 @@ impl<S: StorageEngine> RangoEngine<S> {
             }
         }
         Ok(())
+    }
+
+    /// Apply a batch of remote mutations in a deterministic order.
+    ///
+    /// Sort key: `(collection, timestamp, seq, doc_id, write_id)`.
+    /// Duplicate `write_id` values in the same batch are ignored after the first application.
+    pub fn apply_mutations_deterministic(
+        &self,
+        default_collection: &CollectionName,
+        mut mutations: Vec<Mutation>,
+    ) -> Result<usize, RangoError> {
+        let replay_start = Instant::now();
+        let mut drift_detected = false;
+        for window in mutations.windows(2) {
+            let a = &window[0];
+            let b = &window[1];
+            let out_of_order = a.collection > b.collection
+                || (a.collection == b.collection && a.timestamp > b.timestamp)
+                || (a.collection == b.collection && a.timestamp == b.timestamp && a.seq > b.seq)
+                || (a.collection == b.collection
+                    && a.timestamp == b.timestamp
+                    && a.seq == b.seq
+                    && a.doc_id.to_string() > b.doc_id.to_string())
+                || (a.collection == b.collection
+                    && a.timestamp == b.timestamp
+                    && a.seq == b.seq
+                    && a.doc_id.to_string() == b.doc_id.to_string()
+                    && a.write_id > b.write_id);
+            if out_of_order {
+                drift_detected = true;
+                break;
+            }
+        }
+
+        mutations.sort_by(|a, b| {
+            a.collection
+                .cmp(&b.collection)
+                .then(a.timestamp.cmp(&b.timestamp))
+                .then(a.seq.cmp(&b.seq))
+                .then(a.doc_id.to_string().cmp(&b.doc_id.to_string()))
+                .then(a.write_id.cmp(&b.write_id))
+        });
+
+        let mut seen_write_ids = HashSet::new();
+        let mut applied = 0usize;
+
+        for mutation in mutations {
+            if !mutation.write_id.is_empty() && !seen_write_ids.insert(mutation.write_id.clone()) {
+                drift_detected = true;
+                continue;
+            }
+
+            let collection = if mutation.collection.is_empty() {
+                default_collection.clone()
+            } else {
+                CollectionName::new(mutation.collection.clone())
+            };
+
+            match mutation.patch {
+                Some(doc) => self.apply_remote_mutation(&collection, doc)?,
+                None => {
+                    let mut tombstone = Document::new();
+                    tombstone.insert("_id", mutation.doc_id.0.clone());
+                    tombstone.insert("_deleted", true);
+                    tombstone.insert("_rev", mutation.rev.to_string());
+                    tombstone.insert("_updated_at", mutation.timestamp);
+                    tombstone.insert("_source_node", self.node_id.clone());
+                    self.apply_remote_mutation(&collection, tombstone)?;
+                }
+            }
+            applied += 1;
+        }
+
+        self.metrics
+            .record_replay_duration_us(replay_start.elapsed().as_micros() as u64);
+        if drift_detected {
+            self.metrics.record_replay_drift_detection();
+        }
+
+        Ok(applied)
     }
 
     fn add_conflict(&self, loser: &Document, winner: &mut Document) -> Result<(), RangoError> {

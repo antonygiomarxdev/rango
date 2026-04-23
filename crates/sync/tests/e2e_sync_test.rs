@@ -7,15 +7,33 @@ use rango_sync::client::SyncClient;
 use rango_types::{Checkpoint, Mutation, MutationOp, Revision};
 
 fn dummy_mutation(seq: u64) -> Mutation {
+    let doc_id = rango_types::DocumentId::new_uuid_v7();
+    let rev = Revision::now("client-1");
     Mutation {
         op: MutationOp::Insert,
         collection: "test".to_string(),
-        doc_id: rango_types::DocumentId::new_uuid_v7(),
+        doc_id: doc_id.clone(),
         patch: Some(doc! { "seq": seq as i64 }),
         seq,
         timestamp: bson::DateTime::now(),
-        rev: Revision::now("client-1"),
+        rev: rev.clone(),
         write_id: format!("write-{}", seq),
+        metadata: rango_types::MutationMetadata {
+            id: doc_id.clone(),
+            namespace: "test".to_string(),
+            tenant_id: "tenant-a".to_string(),
+            r#type: "state".to_string(),
+            rev,
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "client-1".to_string(),
+            actor: "client-1".to_string(),
+            lineage: doc_id.to_string(),
+            schema_version: 1,
+            trust_score: 0.8,
+            verified: Some(true),
+            expires_at: None,
+        },
     }
 }
 
@@ -47,6 +65,7 @@ async fn test_e2e_push_and_pull() {
         .unwrap();
     assert_eq!(push_resp.accepted_seqs.len(), 2);
     assert_eq!(push_resp.new_checkpoint.0, 2);
+    assert_eq!(push_resp.rejected_non_owner_count, 0);
 
     // Pull from checkpoint 0
     let pull_resp = client
@@ -64,11 +83,21 @@ async fn test_e2e_push_and_pull() {
         .unwrap();
     // Server should return same seqs (idempotent)
     assert_eq!(push_resp2.accepted_seqs.len(), 2);
+    assert_eq!(push_resp2.rejected_non_owner_count, 0);
 
     // Pull from checkpoint 2 — should get nothing new
     let pull_resp2 = client.pull("client-1", Checkpoint(2)).await.unwrap();
     assert_eq!(pull_resp2.mutations.len(), 0);
     assert_eq!(pull_resp2.new_checkpoint.0, 2);
+
+    // Non-owner write attempt: token owner is client-1, request claims client-2.
+    let rejected = client
+        .push("client-2", vec![dummy_mutation(3)], Checkpoint(2))
+        .await
+        .unwrap();
+    assert_eq!(rejected.accepted_seqs.len(), 0);
+    assert_eq!(rejected.rejected_non_owner_count, 1);
+    assert_eq!(state.non_owner_rejections(), 1);
 }
 
 #[tokio::test]

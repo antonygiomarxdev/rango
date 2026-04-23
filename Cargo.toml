@@ -56,3 +56,11 @@ aes-gcm = "0.10"
 pbkdf2 = "0.12"
 sha2 = "0.10"
 rand = "0.8"
+zeroize = "1"
+
+# Middleware
+tower = { version = "0.5", features = ["limit"] }
+tower-http = "0.6"
+
+# Storage engines
+redb = "4.1"

@@ -126,6 +126,14 @@ pub async fn handle_push(
     let mut rejected_cross_tenant_count = 0u64;
     let mut audit = Vec::new();
     for mutation in req.mutations {
+        if let Err(err) = mutation.validate_metadata() {
+            audit.push(GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: format!("invalid_metadata:{err}"),
+            });
+            continue;
+        }
+
         if mutation.metadata.tenant_id != req.tenant_id
             || mutation.metadata.namespace != req.namespace
         {
@@ -204,7 +212,15 @@ pub async fn handle_pull(
         .read_since(req.since_checkpoint.0 + 1, 1000)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let candidates: Vec<Document> = entries
+    let scoped_entries: Vec<OplogEntry> = entries
+        .into_iter()
+        .filter(|e| {
+            e.mutation.metadata.tenant_id == req.tenant_id
+                && e.mutation.metadata.namespace == req.namespace
+        })
+        .collect();
+
+    let candidates: Vec<Document> = scoped_entries
         .iter()
         .filter_map(|e| e.mutation.patch.clone())
         .collect();
@@ -214,7 +230,7 @@ pub async fn handle_pull(
         tier: MemoryTier::State,
         limit: 1000,
     };
-    let (read_decision, _) = state
+    let (read_decision, filtered_candidates) = state
         .control_plane
         .read_path(&read_request, candidates)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -226,14 +242,26 @@ pub async fn handle_pull(
         }));
     }
 
-    let mutations: Vec<Mutation> = entries
-        .into_iter()
-        .filter(|e| {
-            e.mutation.metadata.tenant_id == req.tenant_id
-                && e.mutation.metadata.namespace == req.namespace
-        })
-        .map(|e| e.mutation)
-        .collect();
+    let mut allowed_patch_counts: HashMap<Vec<u8>, usize> = HashMap::new();
+    for candidate in &filtered_candidates {
+        let key = document_key(candidate);
+        *allowed_patch_counts.entry(key).or_insert(0) += 1;
+    }
+
+    let mut mutations: Vec<Mutation> = Vec::new();
+    for entry in scoped_entries {
+        let Some(patch) = entry.mutation.patch.as_ref() else {
+            continue;
+        };
+        let key = document_key(patch);
+        let Some(remaining) = allowed_patch_counts.get_mut(&key) else {
+            continue;
+        };
+        if *remaining > 0 {
+            mutations.push(entry.mutation);
+            *remaining -= 1;
+        }
+    }
     let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
 
     Ok(Json(PullResponse {
@@ -271,4 +299,8 @@ fn append_mutation(
         snapshot_anchor: None,
     };
     state.oplog.append(entry)
+}
+
+fn document_key(doc: &Document) -> Vec<u8> {
+    format!("{doc:?}").into_bytes()
 }

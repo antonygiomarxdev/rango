@@ -1,0 +1,37 @@
+# =============================================================================
+# Rango — .gitattributes
+# Normalize line endings across OS (LF in repo, OS-native on checkout)
+# =============================================================================
+
+# Default: normalize everything to LF in the repo
+* text=auto eol=lf
+
+# Rust source
+*.rs     text eol=lf
+*.toml   text eol=lf
+*.lock   text eol=lf
+
+# Docs & config
+*.md     text eol=lf
+*.txt    text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+*.sh     text eol=lf
+
+# Windows scripts — always CRLF
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# Binary files — never modify
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.wasm   binary

@@ -389,3 +389,17 @@ Compatibility requirements for these fields:
 4. `expires_at` defaults to `None`; absence means no explicit expiry.
 5. `trust_score` is bounded to `[0.0, 1.0]`; out-of-range values are invalid.
 6. `updated_at >= created_at` is mandatory for deterministic lifecycle ordering.
+
+## Phase 09 Control-Plane Alignment
+
+This model is enforced through explicit control-plane APIs in `rango_core`:
+
+- `write_path` validates metadata and evaluates trust before persistence.
+- `read_path` applies retrieval gating and bounded-context filtering.
+- `promotion_path` handles explicit tier promotion and sanitization.
+
+Deterministic durability semantics:
+
+- Snapshot restore + replay must converge with full replay.
+- Rollback targets explicit snapshot units.
+- Sync dedup is tenant-scoped and idempotent by `write_id`.

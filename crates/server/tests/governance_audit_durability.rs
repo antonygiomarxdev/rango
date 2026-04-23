@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -93,13 +92,7 @@ fn make_mutation(write_id: &str, tenant_id: &str, namespace: &str, trust_score: 
 #[tokio::test]
 async fn governance_decisions_are_persisted_as_durable_audit_evidence() {
     let oplog = Arc::new(InMemoryOplog::default());
-    let state = Arc::new(ServerState {
-        oplog: oplog.clone(),
-        tokens: Mutex::new(HashMap::new()),
-        non_owner_rejections: AtomicU64::new(0),
-        cross_tenant_rejections: AtomicU64::new(0),
-        control_plane: Arc::new(rango_core::ControlPlane::default()),
-    });
+    let state = Arc::new(ServerState::new(oplog.clone()));
     state.add_token_with_tenant("token-a", "node-1", "tenant-a");
 
     let push_response = handle_push(

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -145,12 +144,9 @@ fn make_promote_request(write_id: &str, score: f64) -> PromoteRequest {
 #[tokio::test]
 async fn promote_runtime_enforces_promotion_path_allow_then_reject_with_audit() {
     let oplog = Arc::new(InMemoryOplog::default());
-    let state = ServerState {
-        oplog: oplog.clone(),
-        tokens: Mutex::new(HashMap::new()),
-        non_owner_rejections: AtomicU64::new(0),
-        cross_tenant_rejections: AtomicU64::new(0),
-        control_plane: Arc::new(ControlPlane::with_hooks(
+    let state = ServerState::with_control_plane(
+        oplog.clone(),
+        Arc::new(ControlPlane::with_hooks(
             Arc::new(NoopWriteValidationHook),
             Arc::new(NoopTrustScoringHook),
             Arc::new(RecordingPromotionHook::new(vec![
@@ -162,7 +158,7 @@ async fn promote_runtime_enforces_promotion_path_allow_then_reject_with_audit() 
             Arc::new(NoopAnomalySignalHook),
             Arc::new(NoopAuditSink),
         )),
-    };
+    );
     state.add_token_with_tenant("test-token", "node-1", "tenant-a");
     let state = Arc::new(state);
 
@@ -203,20 +199,18 @@ async fn promote_runtime_enforces_promotion_path_allow_then_reject_with_audit() 
     assert_eq!(reject_response.audit[0].reason, "promote_reject");
 
     let persisted = oplog.read_since(1, 100).unwrap();
-    assert_eq!(persisted.len(), 1);
-    assert_eq!(persisted[0].mutation.write_id, "w-allow");
+    let state_entries: Vec<_> = persisted
+        .iter()
+        .filter(|entry| entry.mutation.metadata.r#type == "state")
+        .collect();
+    assert_eq!(state_entries.len(), 1);
+    assert_eq!(state_entries[0].mutation.write_id, "w-allow");
 }
 
 #[tokio::test]
 async fn promote_runtime_rejects_invalid_metadata_before_promotion_path() {
     let oplog = Arc::new(InMemoryOplog::default());
-    let state = ServerState {
-        oplog: oplog.clone(),
-        tokens: Mutex::new(HashMap::new()),
-        non_owner_rejections: AtomicU64::new(0),
-        cross_tenant_rejections: AtomicU64::new(0),
-        control_plane: Arc::new(ControlPlane::default()),
-    };
+    let state = ServerState::new(oplog.clone());
     state.add_token_with_tenant("test-token", "node-1", "tenant-a");
 
     let mut invalid = make_promote_request("w-invalid", 0.9);
@@ -238,5 +232,9 @@ async fn promote_runtime_rejects_invalid_metadata_before_promotion_path() {
     assert!(response.audit[0].reason.contains("invalid_metadata:"));
 
     let persisted = oplog.read_since(1, 100).unwrap();
-    assert!(persisted.is_empty());
+    let state_entries: Vec<_> = persisted
+        .iter()
+        .filter(|entry| entry.mutation.metadata.r#type == "state")
+        .collect();
+    assert!(state_entries.is_empty());
 }

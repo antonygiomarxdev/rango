@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -97,13 +96,7 @@ fn good_mutation(write_id: &str) -> Mutation {
 #[tokio::test]
 async fn anomaly_bursts_transition_to_containment_and_then_reset_after_cooldown() {
     let oplog = Arc::new(InMemoryOplog::default());
-    let state = Arc::new(ServerState {
-        oplog,
-        tokens: Mutex::new(HashMap::new()),
-        non_owner_rejections: AtomicU64::new(0),
-        cross_tenant_rejections: AtomicU64::new(0),
-        control_plane: Arc::new(rango_core::ControlPlane::default()),
-    });
+    let state = Arc::new(ServerState::new(oplog));
     state.add_token_with_tenant("token-a", "node-1", "tenant-a");
 
     let mut reasons = Vec::new();
@@ -164,4 +157,3 @@ async fn anomaly_bursts_transition_to_containment_and_then_reset_after_cooldown(
         "post-cooldown request should be allowed",
     );
 }
-

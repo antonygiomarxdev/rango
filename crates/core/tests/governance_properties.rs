@@ -65,15 +65,23 @@ fn pull_identity_candidates_must_be_unique_and_tenant_scoped() {
     identities.insert(("tenant-a".to_string(), "ns-a".to_string(), "write-1".to_string()));
     identities.insert(("tenant-a".to_string(), "ns-a".to_string(), "write-2".to_string()));
 
-    // RED expectation for Wave 0: cross-tenant identity duplication must be impossible by construction.
-    let inserted = identities.insert((
+    // Tenant and namespace are part of identity boundary; cross-tenant same write_id is allowed.
+    let cross_tenant_inserted = identities.insert((
         "tenant-b".to_string(),
         "ns-a".to_string(),
         "write-1".to_string(),
     ));
     assert!(
-        !inserted,
-        "write identity must be globally isolated by tenant+namespace, not write_id-only",
+        cross_tenant_inserted,
+        "cross-tenant same write_id should be a distinct identity",
+    );
+    let duplicate_same_scope = identities.insert((
+        "tenant-a".to_string(),
+        "ns-a".to_string(),
+        "write-1".to_string(),
+    ));
+    assert!(
+        !duplicate_same_scope,
+        "same tenant+namespace+write_id must remain unique",
     );
 }
-

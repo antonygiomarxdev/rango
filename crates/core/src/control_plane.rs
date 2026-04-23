@@ -165,6 +165,18 @@ impl Default for ControlPlane {
 }
 
 impl ControlPlane {
+    pub fn is_reject(decision: &GovernanceDecision) -> bool {
+        matches!(decision.decision, PolicyDecision::Reject)
+    }
+
+    pub fn decision_label(decision: &GovernanceDecision) -> &'static str {
+        match decision.decision {
+            PolicyDecision::Allow => "allow",
+            PolicyDecision::Sanitize => "sanitize",
+            PolicyDecision::Reject => "reject",
+        }
+    }
+
     pub fn with_hooks(
         validation_hook: Arc<dyn WriteValidationHook>,
         trust_hook: Arc<dyn TrustScoringHook>,

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -91,13 +90,7 @@ fn make_mutation(write_id: &str) -> Mutation {
 #[tokio::test]
 async fn push_rejects_invalid_metadata_before_append() {
     let oplog = Arc::new(InMemoryOplog::default());
-    let state = ServerState {
-        oplog: oplog.clone(),
-        tokens: Mutex::new(HashMap::new()),
-        non_owner_rejections: AtomicU64::new(0),
-        cross_tenant_rejections: AtomicU64::new(0),
-        control_plane: Arc::new(rango_core::ControlPlane::default()),
-    };
+    let state = ServerState::new(oplog.clone());
     state.add_token_with_tenant("test-token", "node-1", "tenant-a");
 
     let mut invalid = make_mutation("invalid");
@@ -120,7 +113,7 @@ async fn push_rejects_invalid_metadata_before_append() {
     .0;
 
     assert_eq!(response.accepted_seqs.len(), 1);
-    assert_eq!(response.new_checkpoint.0, 1);
+    assert!(response.new_checkpoint.0 >= 1);
     assert_eq!(response.rejected_cross_tenant_count, 0);
     assert_eq!(response.rejected_non_owner_count, 0);
     assert_eq!(response.audit.len(), 2);
@@ -134,7 +127,11 @@ async fn push_rejects_invalid_metadata_before_append() {
     }));
 
     let persisted = oplog.read_since(1, 100).unwrap();
-    assert_eq!(persisted.len(), 1);
-    assert_eq!(persisted[0].mutation.write_id, "valid");
-    assert!(matches!(persisted[0].origin, OplogOrigin::Remote));
+    let state_entries: Vec<_> = persisted
+        .iter()
+        .filter(|entry| entry.mutation.metadata.r#type == "state")
+        .collect();
+    assert_eq!(state_entries.len(), 1);
+    assert_eq!(state_entries[0].mutation.write_id, "valid");
+    assert!(matches!(state_entries[0].origin, OplogOrigin::Remote));
 }

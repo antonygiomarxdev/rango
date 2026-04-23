@@ -70,7 +70,7 @@ async fn test_e2e_push_and_pull() {
         .await
         .unwrap();
     assert_eq!(push_resp.accepted_seqs.len(), 2);
-    assert_eq!(push_resp.new_checkpoint.0, 2);
+    assert!(push_resp.new_checkpoint.0 >= 2);
     assert_eq!(push_resp.rejected_non_owner_count, 0);
     assert_eq!(push_resp.rejected_cross_tenant_count, 0);
 
@@ -80,12 +80,12 @@ async fn test_e2e_push_and_pull() {
         .await
         .unwrap();
     assert_eq!(pull_resp.mutations.len(), 2);
-    assert_eq!(pull_resp.new_checkpoint.0, 2);
+    assert!(pull_resp.new_checkpoint.0 >= push_resp.new_checkpoint.0);
 
     // Idempotency: push same mutations again
     let mutations = vec![dummy_mutation(1), dummy_mutation(2)];
     let push_resp2 = client
-        .push_scoped("client-1", "tenant-a", "test", mutations, Checkpoint(2))
+        .push_scoped("client-1", "tenant-a", "test", mutations, push_resp.new_checkpoint)
         .await
         .unwrap();
     // Server should return same seqs (idempotent)
@@ -95,11 +95,11 @@ async fn test_e2e_push_and_pull() {
 
     // Pull from checkpoint 2 — should get nothing new
     let pull_resp2 = client
-        .pull_scoped("client-1", "tenant-a", "test", Checkpoint(2))
+        .pull_scoped("client-1", "tenant-a", "test", push_resp2.new_checkpoint)
         .await
         .unwrap();
     assert_eq!(pull_resp2.mutations.len(), 0);
-    assert_eq!(pull_resp2.new_checkpoint.0, 2);
+    assert!(pull_resp2.new_checkpoint.0 >= push_resp2.new_checkpoint.0);
 
     // Non-owner write attempt: token owner is client-1, request claims client-2.
     let rejected = client
@@ -147,7 +147,7 @@ async fn test_e2e_push_and_pull() {
         low_trust_resp
             .audit
             .iter()
-            .any(|d| d.reason.starts_with("trust_score_below_threshold"))
+            .any(|d| d.reason.contains("poisoning_low_trust"))
     );
 }
 
@@ -211,6 +211,51 @@ async fn test_duplicate_write_id_remains_idempotent_with_out_of_order_batch() {
         .await
         .unwrap();
     assert_eq!(pull.mutations.len(), 1);
+}
+
+#[tokio::test]
+async fn test_cross_tenant_pull_isolation_prevents_leakage() {
+    let oplog = Arc::new(FileOplog::new(temp_oplog_path()).unwrap());
+    let state = Arc::new(ServerState::new(oplog));
+    state.add_token_with_tenant("token-a", "client-a", "tenant-a");
+    state.add_token_with_tenant("token-b", "client-b", "tenant-b");
+
+    let router = app(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let client_a = SyncClient::new(format!("http://127.0.0.1:{}", port), "token-a");
+    let client_b = SyncClient::new(format!("http://127.0.0.1:{}", port), "token-b");
+
+    let push = client_a
+        .push_scoped(
+            "client-a",
+            "tenant-a",
+            "test",
+            vec![dummy_mutation(20), dummy_mutation(21)],
+            Checkpoint::initial(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(push.accepted_seqs.len(), 2);
+
+    let pull_a = client_a
+        .pull_scoped("client-a", "tenant-a", "test", Checkpoint::initial())
+        .await
+        .unwrap();
+    assert_eq!(pull_a.mutations.len(), 2);
+
+    let pull_b = client_b
+        .pull_scoped("client-b", "tenant-b", "test", Checkpoint::initial())
+        .await
+        .unwrap();
+    assert_eq!(pull_b.mutations.len(), 0);
 }
 
 fn temp_oplog_path() -> String {

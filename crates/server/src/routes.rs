@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::{Extension, extract::Json, http::StatusCode};
 use bson::Document;
@@ -29,16 +30,24 @@ pub struct ServerState {
     pub non_owner_rejections: AtomicU64,
     pub cross_tenant_rejections: AtomicU64,
     pub control_plane: Arc<ControlPlane>,
+    containment: Mutex<HashMap<(String, String), ContainmentState>>,
+    audit_counter: AtomicU64,
 }
 
 impl ServerState {
     pub fn new(oplog: Arc<dyn Oplog>) -> Self {
+        Self::with_control_plane(oplog, Arc::new(ControlPlane::default()))
+    }
+
+    pub fn with_control_plane(oplog: Arc<dyn Oplog>, control_plane: Arc<ControlPlane>) -> Self {
         Self {
             oplog,
             tokens: Mutex::new(HashMap::new()),
             non_owner_rejections: AtomicU64::new(0),
             cross_tenant_rejections: AtomicU64::new(0),
-            control_plane: Arc::new(ControlPlane::default()),
+            control_plane,
+            containment: Mutex::new(HashMap::new()),
+            audit_counter: AtomicU64::new(0),
         }
     }
 
@@ -72,6 +81,146 @@ impl ServerState {
 
     pub fn cross_tenant_rejections(&self) -> u64 {
         self.cross_tenant_rejections.load(Ordering::Relaxed)
+    }
+
+    fn containment_gate(&self, tenant_id: &str, namespace: &str) -> Option<GovernanceDecision> {
+        let key = (tenant_id.to_string(), namespace.to_string());
+        let mut map = self.containment.lock().unwrap();
+        let state = map.entry(key).or_default();
+        state.maybe_reset_after_cooldown();
+        match state.mode {
+            ContainmentMode::Normal => None,
+            ContainmentMode::Throttle => Some(GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "containment_throttle".to_string(),
+            }),
+            ContainmentMode::Reject => Some(GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "containment_reject".to_string(),
+            }),
+        }
+    }
+
+    fn register_decision_outcome(&self, tenant_id: &str, namespace: &str, decision: &GovernanceDecision) {
+        let key = (tenant_id.to_string(), namespace.to_string());
+        let mut map = self.containment.lock().unwrap();
+        let state = map.entry(key).or_default();
+        state.observe_decision(decision);
+    }
+
+    fn persist_audit_evidence(
+        &self,
+        stage: &str,
+        tenant_id: &str,
+        namespace: &str,
+        write_id: Option<&str>,
+        decision: &GovernanceDecision,
+    ) -> Result<u64, RangoError> {
+        let doc_id = rango_types::DocumentId::new_uuid_v7();
+        let rev = rango_types::Revision::now("governance-runtime");
+        let mut patch = Document::new();
+        patch.insert("stage", stage.to_string());
+        patch.insert("decision", ControlPlane::decision_label(decision).to_string());
+        patch.insert("reason", decision.reason.clone());
+        patch.insert("tenant_id", tenant_id.to_string());
+        patch.insert("namespace", namespace.to_string());
+        patch.insert("write_id", write_id.unwrap_or("none").to_string());
+        patch.insert("recorded_at", bson::DateTime::now());
+
+        let event_num = self.audit_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let audit_write_id = format!(
+            "governance-audit:{tenant_id}:{namespace}:{stage}:{}:{event_num}",
+            write_id.unwrap_or("none")
+        );
+        let mutation = Mutation {
+            op: rango_types::MutationOp::Insert,
+            collection: "__governance_audit".to_string(),
+            doc_id: doc_id.clone(),
+            patch: Some(patch),
+            seq: 0,
+            timestamp: bson::DateTime::now(),
+            rev: rev.clone(),
+            write_id: audit_write_id,
+            metadata: rango_types::MutationMetadata {
+                id: doc_id.clone(),
+                namespace: namespace.to_string(),
+                tenant_id: tenant_id.to_string(),
+                r#type: "governance_audit".to_string(),
+                rev,
+                created_at: bson::DateTime::now(),
+                updated_at: bson::DateTime::now(),
+                source: "server.runtime".to_string(),
+                actor: "governance".to_string(),
+                lineage: doc_id.to_string(),
+                schema_version: 1,
+                trust_score: 1.0,
+                verified: Some(true),
+                expires_at: None,
+            },
+        };
+        let entry = OplogEntry {
+            seq: 0,
+            timestamp: bson::DateTime::now(),
+            mutation,
+            origin: OplogOrigin::Local,
+            applied: true,
+            snapshot_anchor: None,
+        };
+        self.oplog.append(entry)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+enum ContainmentMode {
+    #[default]
+    Normal,
+    Throttle,
+    Reject,
+}
+
+#[derive(Debug)]
+struct ContainmentState {
+    mode: ContainmentMode,
+    reject_count: u32,
+    last_event: Instant,
+}
+
+impl Default for ContainmentState {
+    fn default() -> Self {
+        Self {
+            mode: ContainmentMode::Normal,
+            reject_count: 0,
+            last_event: Instant::now(),
+        }
+    }
+}
+
+impl ContainmentState {
+    const THROTTLE_THRESHOLD: u32 = 3;
+    const REJECT_THRESHOLD: u32 = 5;
+    const COOLDOWN: Duration = Duration::from_millis(500);
+
+    fn maybe_reset_after_cooldown(&mut self) {
+        if self.last_event.elapsed() >= Self::COOLDOWN {
+            self.mode = ContainmentMode::Normal;
+            self.reject_count = 0;
+        }
+    }
+
+    fn observe_decision(&mut self, decision: &GovernanceDecision) {
+        self.last_event = Instant::now();
+        if matches!(decision.decision, PolicyDecision::Reject) {
+            self.reject_count += 1;
+            if self.reject_count >= Self::REJECT_THRESHOLD {
+                self.mode = ContainmentMode::Reject;
+            } else if self.reject_count >= Self::THROTTLE_THRESHOLD {
+                self.mode = ContainmentMode::Throttle;
+            }
+            return;
+        }
+
+        self.mode = ContainmentMode::Normal;
+        self.reject_count = 0;
     }
 }
 
@@ -113,16 +262,25 @@ pub async fn handle_push(
         state
             .cross_tenant_rejections
             .fetch_add(1, Ordering::Relaxed);
+        let decision = GovernanceDecision {
+            decision: PolicyDecision::Reject,
+            reason: "tenant_mismatch".to_string(),
+        };
+        let _ = state.persist_audit_evidence(
+            "write",
+            &req.tenant_id,
+            &req.namespace,
+            None,
+            &decision,
+        );
+        state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
         let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
         return Ok(Json(PushResponse {
             accepted_seqs: Vec::new(),
             new_checkpoint,
             rejected_non_owner_count: 0,
             rejected_cross_tenant_count: 1,
-            audit: vec![GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: "tenant_mismatch".to_string(),
-            }],
+            audit: vec![decision],
         }));
     }
 
@@ -130,11 +288,33 @@ pub async fn handle_push(
     let mut rejected_cross_tenant_count = 0u64;
     let mut audit = Vec::new();
     for mutation in req.mutations {
+        if let Some(containment) = state.containment_gate(&req.tenant_id, &req.namespace) {
+            let _ = state.persist_audit_evidence(
+                "write",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&mutation.write_id),
+                &containment,
+            );
+            state.register_decision_outcome(&req.tenant_id, &req.namespace, &containment);
+            audit.push(containment);
+            continue;
+        }
+
         if let Err(err) = mutation.validate_metadata() {
-            audit.push(GovernanceDecision {
+            let decision = GovernanceDecision {
                 decision: PolicyDecision::Reject,
                 reason: format!("invalid_metadata:{err}"),
-            });
+            };
+            let _ = state.persist_audit_evidence(
+                "write",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&mutation.write_id),
+                &decision,
+            );
+            state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+            audit.push(decision);
             continue;
         }
 
@@ -145,10 +325,19 @@ pub async fn handle_push(
                 .cross_tenant_rejections
                 .fetch_add(1, Ordering::Relaxed);
             rejected_cross_tenant_count += 1;
-            audit.push(GovernanceDecision {
+            let decision = GovernanceDecision {
                 decision: PolicyDecision::Reject,
                 reason: "cross_tenant_or_namespace_mutation".to_string(),
-            });
+            };
+            let _ = state.persist_audit_evidence(
+                "write",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&mutation.write_id),
+                &decision,
+            );
+            state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+            audit.push(decision);
             continue;
         }
 
@@ -167,7 +356,17 @@ pub async fn handle_push(
             .control_plane
             .write_path(&write_ctx, &payload)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if matches!(decision.decision, PolicyDecision::Reject) {
+        let decision = normalize_write_decision(decision);
+        let _ = state.persist_audit_evidence(
+            "write",
+            &req.tenant_id,
+            &req.namespace,
+            Some(&mutation.write_id),
+            &decision,
+        );
+        state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+
+        if ControlPlane::is_reject(&decision) {
             audit.push(decision);
             continue;
         }
@@ -221,6 +420,7 @@ pub async fn handle_pull(
         .filter(|e| {
             e.mutation.metadata.tenant_id == req.tenant_id
                 && e.mutation.metadata.namespace == req.namespace
+                && e.mutation.metadata.r#type != "governance_audit"
         })
         .collect();
 
@@ -238,7 +438,18 @@ pub async fn handle_pull(
         .control_plane
         .read_path(&read_request, candidates)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if matches!(read_decision.decision, PolicyDecision::Reject) {
+    let read_decision = state
+        .containment_gate(&req.tenant_id, &req.namespace)
+        .unwrap_or(read_decision);
+    let _ = state.persist_audit_evidence(
+        "read",
+        &req.tenant_id,
+        &req.namespace,
+        None,
+        &read_decision,
+    );
+    state.register_decision_outcome(&req.tenant_id, &req.namespace, &read_decision);
+    if ControlPlane::is_reject(&read_decision) {
         return Ok(Json(PullResponse {
             mutations: Vec::new(),
             new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
@@ -362,6 +573,17 @@ pub async fn handle_promote(
         .control_plane
         .promotion_path(&promotion_request, &payload)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let decision = state
+        .containment_gate(&req.tenant_id, &req.namespace)
+        .unwrap_or(decision);
+    let _ = state.persist_audit_evidence(
+        "promotion",
+        &req.tenant_id,
+        &req.namespace,
+        Some(&req.mutation.write_id),
+        &decision,
+    );
+    state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
 
     if !matches!(decision.decision, PolicyDecision::Allow) {
         return Ok(Json(PromoteResponse {
@@ -426,4 +648,13 @@ fn candidate_identity(candidate: &Document) -> Option<(u64, String)> {
     let seq = candidate.get_i64(IDENTITY_SEQ_FIELD).ok()? as u64;
     let write_id = candidate.get_str(IDENTITY_WRITE_ID_FIELD).ok()?.to_string();
     Some((seq, write_id))
+}
+
+fn normalize_write_decision(mut decision: GovernanceDecision) -> GovernanceDecision {
+    if matches!(decision.decision, PolicyDecision::Reject)
+        && decision.reason.starts_with("trust_score_below_threshold")
+    {
+        decision.reason = format!("poisoning_low_trust:{}", decision.reason);
+    }
+    decision
 }

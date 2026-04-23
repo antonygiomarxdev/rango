@@ -66,6 +66,7 @@ pub fn app(state: Arc<ServerState>) -> Router {
     Router::new()
         .route("/push", axum::routing::post(routes::handle_push))
         .route("/pull", axum::routing::post(routes::handle_pull))
+        .route("/promote", axum::routing::post(routes::handle_promote))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_SIZE))
         .layer(middleware::from_fn(rate_limit_middleware))
         .layer(axum::Extension(state))

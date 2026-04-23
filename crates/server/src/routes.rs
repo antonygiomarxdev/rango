@@ -4,9 +4,13 @@ use std::sync::{Arc, Mutex};
 
 use axum::{Extension, extract::Json, http::StatusCode};
 use bson::Document;
-use rango_core::{ControlPlane, ReadRequest, WriteContext, WritePayload};
+use rango_core::{
+    ControlPlane, PromotionRequest as CorePromotionRequest, ReadRequest, WriteContext, WritePayload,
+};
 use rango_oplog::Oplog;
-use rango_sync::protocol::{PullRequest, PullResponse, PushRequest, PushResponse};
+use rango_sync::protocol::{
+    PromoteRequest, PromoteResponse, PullRequest, PullResponse, PushRequest, PushResponse,
+};
 use rango_types::{
     Checkpoint, GovernanceDecision, MemoryTier, Mutation, OplogEntry, OplogOrigin, PolicyDecision,
     RangoError,
@@ -268,6 +272,111 @@ pub async fn handle_pull(
         mutations,
         new_checkpoint,
         audit: vec![read_decision],
+    }))
+}
+
+#[instrument(skip(state, req))]
+pub async fn handle_promote(
+    Extension(state): Extension<Arc<ServerState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<PromoteRequest>,
+) -> Result<Json<PromoteResponse>, StatusCode> {
+    info!(candidate_id = req.candidate_id, "handling promote");
+    let protocol_version = headers
+        .get("X-Rango-Protocol-Version")
+        .and_then(|v| v.to_str().ok());
+    if protocol_version != Some("1") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
+    let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
+
+    if req.node_id != principal.node_id {
+        state.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
+        return Ok(Json(PromoteResponse {
+            accepted_seqs: Vec::new(),
+            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            rejected_count: 1,
+            audit: vec![GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "node_mismatch".to_string(),
+            }],
+        }));
+    }
+
+    if req.tenant_id != principal.tenant_id {
+        state.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+        return Ok(Json(PromoteResponse {
+            accepted_seqs: Vec::new(),
+            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            rejected_count: 1,
+            audit: vec![GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "tenant_mismatch".to_string(),
+            }],
+        }));
+    }
+
+    if let Err(err) = req.mutation.validate_metadata() {
+        return Ok(Json(PromoteResponse {
+            accepted_seqs: Vec::new(),
+            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            rejected_count: 1,
+            audit: vec![GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: format!("invalid_metadata:{err}"),
+            }],
+        }));
+    }
+
+    if req.mutation.metadata.tenant_id != req.tenant_id || req.mutation.metadata.namespace != req.namespace
+    {
+        state.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+        return Ok(Json(PromoteResponse {
+            accepted_seqs: Vec::new(),
+            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            rejected_count: 1,
+            audit: vec![GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "cross_tenant_or_namespace_mutation".to_string(),
+            }],
+        }));
+    }
+
+    let promotion_request = CorePromotionRequest {
+        tenant_id: req.tenant_id.clone(),
+        namespace: req.namespace.clone(),
+        from: req.from_tier,
+        to: req.to_tier,
+        candidate_id: req.candidate_id.clone(),
+    };
+    let payload = WritePayload::StateWithTrust {
+        document: req.mutation.patch.clone().unwrap_or_else(Document::new),
+        trust_score: req.mutation.metadata.trust_score,
+    };
+
+    let (decision, _) = state
+        .control_plane
+        .promotion_path(&promotion_request, &payload)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if !matches!(decision.decision, PolicyDecision::Allow) {
+        return Ok(Json(PromoteResponse {
+            accepted_seqs: Vec::new(),
+            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            rejected_count: 1,
+            audit: vec![decision],
+        }));
+    }
+
+    let seq = append_mutation(&state, req.mutation, &req.tenant_id, &req.namespace)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(PromoteResponse {
+        accepted_seqs: vec![seq],
+        new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(seq)),
+        rejected_count: 0,
+        audit: vec![decision],
     }))
 }
 

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::Extension;
-use bson::{doc, Document};
+use bson::doc;
 use rango_core::{
     ControlPlane, NoopAnomalySignalHook, NoopAuditSink, NoopBoundedContextFilterHook,
     NoopRetrievalGateHook, NoopTrustScoringHook, NoopWriteValidationHook, PromotionGateHook,
@@ -15,7 +15,7 @@ use rango_oplog::Oplog;
 use rango_server::routes::{handle_promote, ServerState};
 use rango_sync::protocol::PromoteRequest;
 use rango_types::{
-    Checkpoint, DocumentId, Mutation, MutationMetadata, MutationOp, OplogEntry, OplogOrigin,
+    Checkpoint, DocumentId, MemoryTier, Mutation, MutationMetadata, MutationOp, OplogEntry,
     PolicyDecision, RangoError, Revision,
 };
 
@@ -83,6 +83,10 @@ impl PromotionGateHook for RecordingPromotionHook {
                 decision,
                 reason: "promote_allow".to_string(),
             },
+            PolicyDecision::Sanitize => rango_types::GovernanceDecision {
+                decision,
+                reason: "promote_sanitize".to_string(),
+            },
             PolicyDecision::Reject => rango_types::GovernanceDecision {
                 decision,
                 reason: "promote_reject".to_string(),
@@ -131,8 +135,8 @@ fn make_promote_request(write_id: &str, score: f64) -> PromoteRequest {
                 expires_at: None,
             },
         },
-        from_tier: "episodic".to_string(),
-        to_tier: "semantic".to_string(),
+        from_tier: MemoryTier::Episodic,
+        to_tier: MemoryTier::Semantic,
         candidate_id: format!("candidate-{write_id}"),
         last_checkpoint: Checkpoint::initial(),
     }

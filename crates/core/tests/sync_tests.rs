@@ -439,3 +439,119 @@ fn test_control_plane_rejects_low_trust_writes() {
     assert!(matches!(decision.decision, PolicyDecision::Reject));
     assert!(decision.reason.starts_with("trust_score_below_threshold"));
 }
+
+#[test]
+fn test_snapshot_restore_converges_with_full_replay() {
+    let coll = CollectionName::new("snapshot");
+    let source = setup("node-a");
+    let id = source.insert_one(&coll, doc! { "name": "Alice", "v": 1 }).unwrap();
+    source
+        .update_one(&coll, &id, doc! { "$set": { "v": 2 } })
+        .unwrap();
+    let snapshot = source
+        .create_snapshot(&coll, "tenant-a", "snap-1", 2)
+        .unwrap();
+
+    let rev = Revision::now("node-a");
+    let replay_mutation = Mutation {
+        op: MutationOp::Update,
+        collection: coll.0.clone(),
+        doc_id: id.clone(),
+        patch: Some(doc! {
+            "_id": id.0.clone(),
+            "_rev": rev.to_string(),
+            "name": "Alice",
+            "v": 3
+        }),
+        seq: 3,
+        timestamp: bson::DateTime::now(),
+        rev: rev.clone(),
+        write_id: "snapshot-replay-write".to_string(),
+        metadata: rango_types::MutationMetadata {
+            id: id.clone(),
+            namespace: coll.0.clone(),
+            tenant_id: "tenant-a".to_string(),
+            r#type: "state".to_string(),
+            rev,
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "node-a".to_string(),
+            actor: "node-a".to_string(),
+            lineage: id.to_string(),
+            schema_version: 1,
+            trust_score: 0.9,
+            verified: Some(true),
+            expires_at: None,
+        },
+    };
+
+    let restored = setup("node-a");
+    restored
+        .restore_from_snapshot(&coll, &snapshot, vec![replay_mutation.clone()])
+        .unwrap();
+
+    let full_replay = setup("node-a");
+    for doc in &snapshot.state {
+        let doc_id = DocumentId::from_bson(doc.get("_id").unwrap().clone());
+        full_replay
+            .apply_remote_mutation(&coll, doc.clone())
+            .unwrap();
+        // Ensure equivalent materialization for pre-snapshot state.
+        assert!(full_replay.find_one(&coll, &doc_id).unwrap().is_some());
+    }
+    full_replay
+        .apply_mutations_deterministic(&coll, vec![replay_mutation])
+        .unwrap();
+
+    let restored_doc = restored.find_one(&coll, &id).unwrap().unwrap().data;
+    let replay_doc = full_replay.find_one(&coll, &id).unwrap().unwrap().data;
+    assert_eq!(restored_doc, replay_doc);
+}
+
+#[test]
+fn test_idempotent_replay_across_multiple_batches() {
+    let coll = CollectionName::new("idempotent");
+    let engine = setup("node-a");
+    let id = DocumentId::new_uuid_v7();
+    let rev = Revision::now("node-a");
+    let mutation = Mutation {
+        op: MutationOp::Insert,
+        collection: coll.0.clone(),
+        doc_id: id.clone(),
+        patch: Some(doc! {
+            "_id": id.0.clone(),
+            "_rev": rev.to_string(),
+            "name": "dedup"
+        }),
+        seq: 1,
+        timestamp: bson::DateTime::now(),
+        rev: rev.clone(),
+        write_id: "global-dedup-write".to_string(),
+        metadata: rango_types::MutationMetadata {
+            id: id.clone(),
+            namespace: coll.0.clone(),
+            tenant_id: "tenant-a".to_string(),
+            r#type: "state".to_string(),
+            rev,
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "node-a".to_string(),
+            actor: "node-a".to_string(),
+            lineage: id.to_string(),
+            schema_version: 1,
+            trust_score: 1.0,
+            verified: Some(true),
+            expires_at: None,
+        },
+    };
+
+    let first = engine
+        .apply_mutations_deterministic(&coll, vec![mutation.clone()])
+        .unwrap();
+    let second = engine
+        .apply_mutations_deterministic(&coll, vec![mutation])
+        .unwrap();
+
+    assert_eq!(first, 1);
+    assert_eq!(second, 0);
+}

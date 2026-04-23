@@ -370,6 +370,7 @@ mod tests {
             mutation: dummy_mutation(),
             origin: OplogOrigin::Local,
             applied: false,
+            snapshot_anchor: None,
         };
         let seq1 = oplog.append(e1.clone()).unwrap();
         assert_eq!(seq1, 1);
@@ -396,6 +397,7 @@ mod tests {
                 mutation: dummy_mutation(),
                 origin: OplogOrigin::Local,
                 applied: false,
+                snapshot_anchor: None,
             };
             oplog.append(e).unwrap();
         }
@@ -418,6 +420,7 @@ mod tests {
             mutation: dummy_mutation(),
             origin: OplogOrigin::Local,
             applied: false,
+            snapshot_anchor: None,
         };
         oplog.append(e).unwrap();
         assert_eq!(oplog.latest_seq().unwrap(), 1);
@@ -434,6 +437,7 @@ mod tests {
             mutation: dummy_mutation(),
             origin: OplogOrigin::Local,
             applied: false,
+            snapshot_anchor: None,
         };
         let seq = oplog.append(e).unwrap();
         oplog.mark_applied(seq).unwrap();
@@ -454,6 +458,7 @@ mod tests {
                 mutation: dummy_mutation(),
                 origin: OplogOrigin::Local,
                 applied: false,
+                snapshot_anchor: None,
             };
             oplog.append(e).unwrap();
         }
@@ -478,6 +483,7 @@ mod tests {
             mutation: dummy_mutation(),
             origin: OplogOrigin::Local,
             applied: false,
+            snapshot_anchor: None,
         };
         let seq = oplog.append(e).unwrap();
 

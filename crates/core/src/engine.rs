@@ -4,7 +4,7 @@ use rango_storage::StorageEngine;
 use rango_types::*;
 use std::collections::HashSet;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tracing::{info, instrument, warn};
 
@@ -17,6 +17,7 @@ pub struct RangoEngine<S: StorageEngine> {
     node_id: String,
     metrics: Metrics,
     config: RangoConfig,
+    applied_write_ids: Mutex<HashSet<String>>,
 }
 
 impl<S: StorageEngine> RangoEngine<S> {
@@ -40,6 +41,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             node_id: node_id.into(),
             metrics: Metrics::default(),
             config,
+            applied_write_ids: Mutex::new(HashSet::new()),
         })
     }
 
@@ -124,6 +126,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             mutation,
             origin: OplogOrigin::Local,
             applied: true,
+            snapshot_anchor: None,
         };
         self.oplog.append(entry)?;
         self.metrics.record_insert();
@@ -321,6 +324,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             mutation,
             origin: OplogOrigin::Local,
             applied: true,
+            snapshot_anchor: None,
         };
         self.oplog.append(entry)?;
         self.metrics.record_update();
@@ -383,6 +387,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             mutation,
             origin: OplogOrigin::Local,
             applied: true,
+            snapshot_anchor: None,
         };
         self.oplog.append(entry)?;
         self.metrics.record_delete();
@@ -498,11 +503,21 @@ impl<S: StorageEngine> RangoEngine<S> {
 
         let mut seen_write_ids = HashSet::new();
         let mut applied = 0usize;
+        let mut global_seen = self
+            .applied_write_ids
+            .lock()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
 
         for mutation in mutations {
-            if !mutation.write_id.is_empty() && !seen_write_ids.insert(mutation.write_id.clone()) {
-                drift_detected = true;
-                continue;
+            if !mutation.write_id.is_empty() {
+                if !seen_write_ids.insert(mutation.write_id.clone()) {
+                    drift_detected = true;
+                    continue;
+                }
+                if !global_seen.insert(mutation.write_id.clone()) {
+                    drift_detected = true;
+                    continue;
+                }
             }
 
             let collection = if mutation.collection.is_empty() {
@@ -533,6 +548,54 @@ impl<S: StorageEngine> RangoEngine<S> {
         }
 
         Ok(applied)
+    }
+
+    pub fn create_snapshot(
+        &self,
+        collection: &CollectionName,
+        tenant_id: &str,
+        snapshot_id: &str,
+        base_seq: u64,
+    ) -> Result<SnapshotUnit, RangoError> {
+        let state = self.find_all_raw(collection)?;
+        Ok(SnapshotUnit {
+            snapshot_id: snapshot_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            namespace: collection.0.clone(),
+            base_seq,
+            created_at: bson::DateTime::now(),
+            state,
+        })
+    }
+
+    pub fn restore_from_snapshot(
+        &self,
+        collection: &CollectionName,
+        snapshot: &SnapshotUnit,
+        replay: Vec<Mutation>,
+    ) -> Result<usize, RangoError> {
+        if snapshot.namespace != collection.0 {
+            return Err(RangoError::Conflict(
+                "snapshot namespace does not match collection".to_string(),
+            ));
+        }
+
+        let existing = self.find_all_raw(collection)?;
+        for doc in existing {
+            if let Some(id_bson) = doc.get("_id") {
+                let id = DocumentId::from_bson(id_bson.clone());
+                self.storage.delete(collection, &id)?;
+            }
+        }
+
+        for doc in &snapshot.state {
+            if let Some(id_bson) = doc.get("_id") {
+                let id = DocumentId::from_bson(id_bson.clone());
+                self.storage.put(collection, &id, doc)?;
+            }
+        }
+
+        self.apply_mutations_deterministic(collection, replay)
     }
 
     fn add_conflict(&self, loser: &Document, winner: &mut Document) -> Result<(), RangoError> {

@@ -1,8 +1,8 @@
 # Rango
 
 <p align="center">
-  <strong>Local-first embedded document database for edge devices and IoT gateways.</strong><br>
-  Sub-millisecond reads · Offline writes · Reliable incremental sync
+  <strong>Durable document memory for stateful AI systems.</strong><br>
+  Local-first state · Durable history · Incremental sync
 </p>
 
 <p align="center">
@@ -16,33 +16,32 @@
 
 ## Why Rango?
 
-Field operations, IoT gateways, and edge deployments share a common constraint: **the network cannot be trusted**. Rango is built around that reality.
+Stateful agents, copilots, and long-running automations all hit the same wall: they need memory that survives restarts, survives disconnects, and syncs without replaying the whole world. Rango is built around that reality.
 
 | Problem | Rango's answer |
 |---------|---------------|
-| Network goes down mid-operation | Writes are persisted locally first, synced later |
-| Multiple devices edit the same document | Last-Write-Wins by `_rev` (Hybrid Logical Clock), conflicts preserved in `_conflicts` |
-| Data must survive a power cut | Append-only oplog + WAL-based crash recovery |
-| Data at rest must be encrypted | AES-256-GCM on every byte, PBKDF2-SHA256 key derivation |
-| Team knows MongoDB API | BSON-native, familiar CRUD and query operators |
+| Agent process restarts or crashes | State and change history are stored durably |
+| Memory must keep working offline | Local-first reads and writes, sync later |
+| Multiple nodes continue from diverged state | Incremental sync with `_rev` ordering and conflict retention |
+| Memory should look like documents, not rows | BSON-native documents and document-level mutations |
+| Platform teams need safe operational state | Encryption at rest, oplog, checkpoints, and audit-friendly history |
 
-Rango is **not** a distributed database, a full MongoDB replacement, or a cloud service. It is a primitive you embed directly in your application — like SQLite, but for documents.
+Rango is **not** a MongoDB clone, not SQLite with JSON bolted on, and not an analytics database. It is a primitive you embed directly in your application to give AI systems durable operational memory.
 
 ---
 
-## Features
+## Core Capabilities
 
-- **Embedded & local-first** — no server required for reads or writes
-- **BSON-native** — documents are BSON; IDs are UUID v7 (monotonic, sortable)
-- **MongoDB-compatible query API** — `$eq`, `$in`, `$gt`, `$gte`, `$lt`, `$lte`, `$and`, `$or`
-- **Update operators** — `$set`, `$unset`, `$inc`
-- **Secondary indexes** — B-tree, create/drop at runtime
+- **Durable document memory** — documents, revisions, and change history are first-class
+- **Local-first runtime state** — no network dependency for the hot path
 - **Incremental sync** — checkpoint-based push/pull over HTTP/JSON
-- **Conflict resolution** — Last-Write-Wins with full version history (`_conflicts`)
-- **At-rest encryption** — AES-256-GCM, passphrase-based key derivation
-- **Import/export** — JSON Lines and MongoDB Extended JSON
-- **CLI tools** — `init`, `inspect`, `import`, `export`, `bench`, `doctor`, `sync`
-- **Observability** — structured tracing, counters for every operation
+- **Conflict retention** — Last-Write-Wins plus `_conflicts` history for reconciliation
+- **Document query and mutation engine** — `$eq`, `$in`, `$gt`, `$gte`, `$lt`, `$lte`, `$and`, `$or`, plus `$set`/`$unset`/`$inc`
+- **Secondary indexes** — B-tree indexes created and dropped at runtime
+- **At-rest encryption** — AES-256-GCM with passphrase-derived keys
+- **Import/export** — JSON Lines and MongoDB Extended JSON migration paths
+- **Operational tooling** — `init`, `inspect`, `import`, `export`, `bench`, `doctor`, `sync`
+- **Observability** — structured tracing, metrics, and durable sync metadata
 
 ---
 
@@ -64,28 +63,29 @@ use serde_json::json;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let client = RangoClient::open("./my-data", RangoConfig::default()).await?;
-    let sensors = client.collection("sensors");
+    let memory = client.collection("agent_memory");
 
-    // Insert
-    let id = sensors.insert_one(json!({
-        "device_id": "gw-001",
-        "temp_c": 23.5,
-        "humidity_pct": 61
+    // Persist a durable memory record
+    let id = memory.insert_one(json!({
+        "agent_id": "planner-01",
+        "kind": "conversation_summary",
+        "content": "User wants a phased rollout with strong safety guarantees.",
+        "importance": 0.87
     })).await?;
 
-    // Find
-    let doc = sensors.find_one(json!({ "_id": id })).await?;
+    // Recover that memory later
+    let doc = memory.find_one(json!({ "_id": id })).await?;
     println!("{doc:?}");
 
-    // Query
-    let hot = sensors.find_many(json!({ "temp_c": { "$gt": 30 } })).await?;
-    println!("Hot sensors: {}", hot.len());
+    // Query operational memory by semantic metadata
+    let important = memory.find_many(json!({ "importance": { "$gte": 0.8 } })).await?;
+    println!("Important memories: {}", important.len());
 
     Ok(())
 }
 ```
 
-### As a server (sync target)
+### As a sync server
 
 ```bash
 cargo build --release -p rango-server
@@ -125,7 +125,7 @@ rango doctor ./my-data
 └─────────────────────────────────────────────────────────┘
 ```
 
-Every layer depends only on the layer below it. The `StorageEngine` trait is the main extension point — plug in `sled`, `redb`, `fjall`, or any other KV store.
+Every layer depends only on the layer below it. The `StorageEngine` trait is the main extension point, and the core abstraction is not just storage: it is durable document state plus revisioned history.
 
 Full architecture: [docs/architecture.md](docs/architecture.md)
 
@@ -135,16 +135,25 @@ Full architecture: [docs/architecture.md](docs/architecture.md)
 
 | Crate | Description |
 |-------|-------------|
-| `rango-types` | Shared primitives: DocumentId, Revision, Mutation, Checkpoint |
-| `rango-storage` | Pluggable KV engine + AES-256-GCM encryption |
+| `rango-types` | Shared primitives for document identity, revisions, mutations, and checkpoints |
+| `rango-storage` | Pluggable KV engine, durability primitives, and AES-256-GCM encryption |
 | `rango-index` | Primary and secondary index management |
-| `rango-query` | Filter, projection, sort, update operators |
-| `rango-oplog` | Append-only operation log with compaction |
-| `rango-sync` | Incremental sync engine + conflict resolution |
-| `rango-core` | Engine orchestrating all subsystems |
+| `rango-query` | Filter, projection, sort, and document update operators |
+| `rango-oplog` | Durable append-only change history |
+| `rango-sync` | Incremental sync engine, checkpoints, and conflict handling |
+| `rango-core` | Main engine for document state, metadata, and orchestration |
 | `rango-server` | Axum-based HTTP sync server |
-| `rango-sdk` | Public Rust SDK |
-| `rango-cli` | CLI tool |
+| `rango-sdk` | Public Rust SDK for embedding Rango into applications |
+| `rango-cli` | Operator tooling for local stores and sync flows |
+
+---
+
+## Target Use Cases
+
+- durable memory for copilots and autonomous agents
+- local operational state for automations that must survive restarts
+- syncable document state across desktop, edge, and backend runtimes
+- embedded memory layers where full database infrastructure would be overkill
 
 ---
 
@@ -162,7 +171,7 @@ Edge Node                          Sync Server
     |<- 200 OK (mutations) -------------|
 ```
 
-Each document carries a `_rev` (Hybrid Logical Clock timestamp). Conflicts are resolved Last-Write-Wins; the losing version is stored in `_conflicts` (max 10 retained).
+Each document carries a `_rev` (Hybrid Logical Clock timestamp). Conflicts are resolved Last-Write-Wins; the losing version is stored in `_conflicts` (max 10 retained), which makes sync suitable for operational memory instead of stateless cache replication.
 
 Full spec: [docs/sync-protocol.md](docs/sync-protocol.md)
 

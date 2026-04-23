@@ -238,15 +238,15 @@ Garbage collection
 For deterministic replay, apply EventEnvelopes in this strict order:
 
 ```
-Sort key: (namespace, timestamp_ms, sequence, source_node_hash, write_id)
-  1. namespace:        Ownership scope; must be deterministic
-  2. timestamp_ms:     LWW canonical; breaks ties
-  3. sequence:         Monotonic per source; breaks further ties
-  4. source_node_hash: Stable node ordering; breaks vector iteration ambiguity
-  5. write_id:         Final tie-breaker; globally unique
+Sort key: (collection, timestamp, seq, doc_id, write_id)
+  1. collection:       Replay scope in the runtime engine
+  2. timestamp:        Canonical event ordering in replay batches
+  3. seq:              Monotonic sequence tie-breaker
+  4. doc_id:           Stable deterministic ordering per document
+  5. write_id:         Final tie-breaker for deterministic idempotency
 ```
 
-**Rationale:** Each level adds determinism to prevent non-deterministic hash map iteration or random ordering from affecting replay.
+**Rationale:** This tuple matches `RangoEngine::apply_mutations_deterministic` and is the canonical replay source for Phase 01.
 
 ### Idempotency Guarantee
 
@@ -256,6 +256,7 @@ Sort key: (namespace, timestamp_ms, sequence, source_node_hash, write_id)
 1. At server ingress: dedupe by write_id before oplog append (reject duplicate)
 2. At oplog apply: dedupe by write_id before record update (skip already-applied)
 3. At sync replay: dedupe by write_id before applying to local state
+4. At local insert/update/delete: generate non-empty `write_id` before oplog append
 
 **Test:** Replay event set N times → N RecordEnvelopeSnapshots must be byte-identical
 

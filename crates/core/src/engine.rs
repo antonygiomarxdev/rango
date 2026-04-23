@@ -94,7 +94,7 @@ impl<S: StorageEngine> RangoEngine<S> {
 
         self.storage.put(collection, &id, &doc)?;
 
-        let mutation = Mutation {
+        let mut mutation = Mutation {
             op: MutationOp::Insert,
             collection: collection.0.clone(),
             doc_id: id.clone(),
@@ -102,7 +102,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             seq: 0,
             timestamp: bson::DateTime::now(),
             rev: rev.clone(),
-            write_id: String::new(),
+            write_id: "pending-local-write-id".to_string(),
             metadata: MutationMetadata {
                 id: id.clone(),
                 namespace: collection.0.clone(),
@@ -120,6 +120,7 @@ impl<S: StorageEngine> RangoEngine<S> {
                 expires_at: None,
             },
         };
+        mutation.write_id = mutation.write_id();
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
@@ -292,7 +293,7 @@ impl<S: StorageEngine> RangoEngine<S> {
 
         self.storage.put(collection, id, &doc)?;
 
-        let mutation = Mutation {
+        let mut mutation = Mutation {
             op: MutationOp::Update,
             collection: collection.0.clone(),
             doc_id: id.clone(),
@@ -300,7 +301,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             seq: 0,
             timestamp: bson::DateTime::now(),
             rev: rev.clone(),
-            write_id: String::new(),
+            write_id: "pending-local-write-id".to_string(),
             metadata: MutationMetadata {
                 id: id.clone(),
                 namespace: collection.0.clone(),
@@ -318,6 +319,7 @@ impl<S: StorageEngine> RangoEngine<S> {
                 expires_at: None,
             },
         };
+        mutation.write_id = mutation.write_id();
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
@@ -355,7 +357,7 @@ impl<S: StorageEngine> RangoEngine<S> {
 
         self.storage.put(collection, id, &doc)?;
 
-        let mutation = Mutation {
+        let mut mutation = Mutation {
             op: MutationOp::Delete,
             collection: collection.0.clone(),
             doc_id: id.clone(),
@@ -363,7 +365,7 @@ impl<S: StorageEngine> RangoEngine<S> {
             seq: 0,
             timestamp: bson::DateTime::now(),
             rev: rev.clone(),
-            write_id: String::new(),
+            write_id: "pending-local-write-id".to_string(),
             metadata: MutationMetadata {
                 id: id.clone(),
                 namespace: collection.0.clone(),
@@ -381,6 +383,7 @@ impl<S: StorageEngine> RangoEngine<S> {
                 expires_at: None,
             },
         };
+        mutation.write_id = mutation.write_id();
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),

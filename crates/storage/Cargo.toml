@@ -1,0 +1,22 @@
+[package]
+name = "rango-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rango-types = { path = "../types" }
+serde = { workspace = true }
+bson = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+aes-gcm = { workspace = true }
+pbkdf2 = { workspace = true }
+sha2 = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

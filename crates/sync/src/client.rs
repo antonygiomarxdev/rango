@@ -25,8 +25,22 @@ impl SyncClient {
         mutations: Vec<rango_types::Mutation>,
         checkpoint: Checkpoint,
     ) -> Result<PushResponse, RangoError> {
+        self.push_scoped(node_id, "default", "default", mutations, checkpoint)
+            .await
+    }
+
+    pub async fn push_scoped(
+        &self,
+        node_id: &str,
+        tenant_id: &str,
+        namespace: &str,
+        mutations: Vec<rango_types::Mutation>,
+        checkpoint: Checkpoint,
+    ) -> Result<PushResponse, RangoError> {
         let req = PushRequest {
             node_id: node_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            namespace: namespace.to_string(),
             mutations,
             last_checkpoint: checkpoint,
         };
@@ -55,8 +69,21 @@ impl SyncClient {
         node_id: &str,
         checkpoint: Checkpoint,
     ) -> Result<PullResponse, RangoError> {
+        self.pull_scoped(node_id, "default", "default", checkpoint)
+            .await
+    }
+
+    pub async fn pull_scoped(
+        &self,
+        node_id: &str,
+        tenant_id: &str,
+        namespace: &str,
+        checkpoint: Checkpoint,
+    ) -> Result<PullResponse, RangoError> {
         let req = PullRequest {
             node_id: node_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            namespace: namespace.to_string(),
             since_checkpoint: checkpoint,
         };
         let url = format!("{}/pull", self.server_url);

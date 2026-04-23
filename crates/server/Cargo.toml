@@ -12,6 +12,7 @@ repository.workspace = true
 rango-types = { path = "../types" }
 rango-sync = { path = "../sync" }
 rango-oplog = { path = "../oplog" }
+rango-core = { path = "../core" }
 bson = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

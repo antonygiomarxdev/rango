@@ -42,7 +42,7 @@ async fn test_e2e_push_and_pull() {
     // Start server on random port
     let oplog = Arc::new(FileOplog::new(temp_oplog_path()).unwrap());
     let state = Arc::new(ServerState::new(oplog));
-    state.add_token("test-token", "client-1");
+    state.add_token_with_tenant("test-token", "client-1", "tenant-a");
 
     let router = app(state.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -60,16 +60,23 @@ async fn test_e2e_push_and_pull() {
     // Push 2 mutations
     let mutations = vec![dummy_mutation(1), dummy_mutation(2)];
     let push_resp = client
-        .push("client-1", mutations, Checkpoint::initial())
+        .push_scoped(
+            "client-1",
+            "tenant-a",
+            "test",
+            mutations,
+            Checkpoint::initial(),
+        )
         .await
         .unwrap();
     assert_eq!(push_resp.accepted_seqs.len(), 2);
     assert_eq!(push_resp.new_checkpoint.0, 2);
     assert_eq!(push_resp.rejected_non_owner_count, 0);
+    assert_eq!(push_resp.rejected_cross_tenant_count, 0);
 
     // Pull from checkpoint 0
     let pull_resp = client
-        .pull("client-1", Checkpoint::initial())
+        .pull_scoped("client-1", "tenant-a", "test", Checkpoint::initial())
         .await
         .unwrap();
     assert_eq!(pull_resp.mutations.len(), 2);
@@ -78,33 +85,51 @@ async fn test_e2e_push_and_pull() {
     // Idempotency: push same mutations again
     let mutations = vec![dummy_mutation(1), dummy_mutation(2)];
     let push_resp2 = client
-        .push("client-1", mutations, Checkpoint(2))
+        .push_scoped("client-1", "tenant-a", "test", mutations, Checkpoint(2))
         .await
         .unwrap();
     // Server should return same seqs (idempotent)
     assert_eq!(push_resp2.accepted_seqs.len(), 2);
     assert_eq!(push_resp2.rejected_non_owner_count, 0);
+    assert_eq!(push_resp2.rejected_cross_tenant_count, 0);
 
     // Pull from checkpoint 2 — should get nothing new
-    let pull_resp2 = client.pull("client-1", Checkpoint(2)).await.unwrap();
+    let pull_resp2 = client
+        .pull_scoped("client-1", "tenant-a", "test", Checkpoint(2))
+        .await
+        .unwrap();
     assert_eq!(pull_resp2.mutations.len(), 0);
     assert_eq!(pull_resp2.new_checkpoint.0, 2);
 
     // Non-owner write attempt: token owner is client-1, request claims client-2.
     let rejected = client
-        .push("client-2", vec![dummy_mutation(3)], Checkpoint(2))
+        .push_scoped("client-2", "tenant-a", "test", vec![dummy_mutation(3)], Checkpoint(2))
         .await
         .unwrap();
     assert_eq!(rejected.accepted_seqs.len(), 0);
     assert_eq!(rejected.rejected_non_owner_count, 1);
     assert_eq!(state.non_owner_rejections(), 1);
+
+    let cross_tenant = client
+        .push_scoped(
+            "client-1",
+            "tenant-b",
+            "test",
+            vec![dummy_mutation(4)],
+            Checkpoint(2),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cross_tenant.accepted_seqs.len(), 0);
+    assert_eq!(cross_tenant.rejected_cross_tenant_count, 1);
+    assert_eq!(state.cross_tenant_rejections(), 1);
 }
 
 #[tokio::test]
 async fn test_auth_failure() {
     let oplog = Arc::new(FileOplog::new(temp_oplog_path()).unwrap());
     let state = Arc::new(ServerState::new(oplog));
-    state.add_token("test-token", "client-1");
+    state.add_token_with_tenant("test-token", "client-1", "tenant-a");
 
     let router = app(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -419,3 +419,23 @@ fn test_control_plane_promotion_path_is_explicit() {
         _ => panic!("expected state payload"),
     }
 }
+
+#[test]
+fn test_control_plane_rejects_low_trust_writes() {
+    let control_plane = ControlPlane::default();
+    let write_ctx = WriteContext {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        actor: "actor".to_string(),
+        source: "source".to_string(),
+        tier: MemoryTier::State,
+    };
+
+    let payload = WritePayload::StateWithTrust {
+        document: doc! { "content": "candidate" },
+        trust_score: 0.1,
+    };
+    let decision = control_plane.write_path(&write_ctx, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert!(decision.reason.starts_with("trust_score_below_threshold"));
+}

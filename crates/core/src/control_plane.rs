@@ -34,6 +34,10 @@ pub struct PromotionRequest {
 #[derive(Debug, Clone)]
 pub enum WritePayload {
     State(Document),
+    StateWithTrust {
+        document: Document,
+        trust_score: f64,
+    },
     Event(EventEnvelope),
     Artifact(ArtifactEnvelope),
     Semantic(Document),
@@ -82,8 +86,11 @@ impl WriteValidationHook for NoopWriteValidationHook {
 pub struct NoopTrustScoringHook;
 
 impl TrustScoringHook for NoopTrustScoringHook {
-    fn score(&self, _ctx: &WriteContext, _payload: &WritePayload) -> f64 {
-        1.0
+    fn score(&self, _ctx: &WriteContext, payload: &WritePayload) -> f64 {
+        match payload {
+            WritePayload::StateWithTrust { trust_score, .. } => *trust_score,
+            _ => 1.0,
+        }
     }
 }
 

@@ -123,6 +123,18 @@ async fn test_e2e_push_and_pull() {
     assert_eq!(cross_tenant.accepted_seqs.len(), 0);
     assert_eq!(cross_tenant.rejected_cross_tenant_count, 1);
     assert_eq!(state.cross_tenant_rejections(), 1);
+
+    let mut low_trust = dummy_mutation(5);
+    low_trust.metadata.trust_score = 0.1;
+    let low_trust_resp = client
+        .push_scoped("client-1", "tenant-a", "test", vec![low_trust], Checkpoint(2))
+        .await
+        .unwrap();
+    assert_eq!(low_trust_resp.accepted_seqs.len(), 0);
+    assert!(low_trust_resp
+        .audit
+        .iter()
+        .any(|d| d.reason.starts_with("trust_score_below_threshold")));
 }
 
 #[tokio::test]

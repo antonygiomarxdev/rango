@@ -145,7 +145,10 @@ pub async fn handle_push(
             source: mutation.metadata.source.clone(),
             tier: MemoryTier::State,
         };
-        let payload = WritePayload::State(mutation.patch.clone().unwrap_or_else(Document::new));
+        let payload = WritePayload::StateWithTrust {
+            document: mutation.patch.clone().unwrap_or_else(Document::new),
+            trust_score: mutation.metadata.trust_score,
+        };
         let decision = state
             .control_plane
             .write_path(&write_ctx, &payload)

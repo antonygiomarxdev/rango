@@ -1548,6 +1548,7 @@ dependencies = [
  "axum",
  "bson",
  "proptest",
+ "rango-core",
  "rango-oplog",
  "rango-sync",
  "rango-types",

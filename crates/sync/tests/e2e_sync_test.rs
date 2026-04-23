@@ -159,6 +159,46 @@ async fn test_auth_failure() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn test_duplicate_write_id_remains_idempotent_with_out_of_order_batch() {
+    let oplog = Arc::new(FileOplog::new(temp_oplog_path()).unwrap());
+    let state = Arc::new(ServerState::new(oplog));
+    state.add_token_with_tenant("test-token", "client-1", "tenant-a");
+
+    let router = app(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let client = SyncClient::new(format!("http://127.0.0.1:{}", port), "test-token");
+    let mut m1 = dummy_mutation(10);
+    let mut m2 = dummy_mutation(9);
+    m1.write_id = "same-write".to_string();
+    m2.write_id = "same-write".to_string();
+
+    let push = client
+        .push_scoped(
+            "client-1",
+            "tenant-a",
+            "test",
+            vec![m1, m2], // intentionally out-of-order seq values
+            Checkpoint::initial(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(push.accepted_seqs.len(), 2);
+    assert_eq!(push.accepted_seqs[0], push.accepted_seqs[1]);
+
+    let pull = client
+        .pull_scoped("client-1", "tenant-a", "test", Checkpoint::initial())
+        .await
+        .unwrap();
+    assert_eq!(pull.mutations.len(), 1);
+}
+
 fn temp_oplog_path() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);

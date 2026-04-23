@@ -250,9 +250,8 @@ fn append_mutation(
     // Simple idempotency check: deduplicate by write_id
     // Dedup key is tenant + namespace + write_id for isolation safety.
     let latest = state.oplog.latest_seq()?;
-    let since = latest.saturating_sub(1000);
-    let recent = state.oplog.read_since(since, 1000)?;
-    for entry in recent {
+    let all = state.oplog.read_since(1, latest as usize + 1)?;
+    for entry in all {
         if entry.mutation.write_id == mutation.write_id
             && entry.mutation.metadata.tenant_id == tenant_id
             && entry.mutation.metadata.namespace == namespace
@@ -267,6 +266,7 @@ fn append_mutation(
         mutation,
         origin: OplogOrigin::Remote,
         applied: false,
+        snapshot_anchor: None,
     };
     state.oplog.append(entry)
 }

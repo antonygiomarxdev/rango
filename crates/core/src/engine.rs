@@ -440,7 +440,7 @@ impl<S: StorageEngine> RangoEngine<S> {
         id: &DocumentId,
         chosen_rev: &Revision,
     ) -> Result<(), RangoError> {
-        let mut doc = match self.storage.get(collection, id)? {
+        let doc = match self.storage.get(collection, id)? {
             Some(d) => d,
             None => return Err(RangoError::DocumentNotFound(id.to_string())),
         };

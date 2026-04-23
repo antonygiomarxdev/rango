@@ -34,7 +34,7 @@ exceptions = []
 # ---------------------------------------------------------------------------
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"

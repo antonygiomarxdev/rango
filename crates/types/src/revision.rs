@@ -53,7 +53,7 @@ impl Revision {
 
     fn parse(&self) -> (u64, u16) {
         let parts: Vec<&str> = self.0.splitn(3, '-').collect();
-        let ts = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let ts = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
         let cnt = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
         (ts, cnt)
     }

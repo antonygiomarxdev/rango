@@ -1,6 +1,6 @@
 # Contributing to Rango
 
-Thank you for your interest in contributing! Rango is an open-source project and we welcome contributions of all kinds.
+Thank you for your interest in contributing. Rango is a source-available project and we welcome contributions of all kinds.
 
 ## Table of Contents
 
@@ -172,4 +172,7 @@ PRs that fail CI will not be merged. PRs without tests will be asked to add them
 ## License
 
 By contributing you agree that your contributions will be licensed under
-the same dual MIT / Apache-2.0 license as the rest of the project.
+the same Business Source License 1.1 terms and project-specific Additional Use Grant
+that govern the rest of the repository, unless explicitly agreed otherwise in writing.
+
+If your employer requires different contribution terms, contact the repository owner before contributing.

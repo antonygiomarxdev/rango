@@ -7,9 +7,8 @@
 
 <p align="center">
   <a href="https://github.com/antonygiomarxdev/rango/actions/workflows/ci.yml"><img src="https://github.com/antonygiomarxdev/rango/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/rango-core"><img src="https://img.shields.io/crates/v/rango-core.svg" alt="Crates.io"></a>
-  <a href="https://docs.rs/rango-core"><img src="https://docs.rs/rango-core/badge.svg" alt="docs.rs"></a>
-  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License"></a>
+  <a href="https://github.com/antonygiomarxdev/rango/releases"><img src="https://img.shields.io/github/v/release/antonygiomarxdev/rango" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL%201.1%20%2B%20commercial-blue.svg" alt="License"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.85%2B-orange.svg" alt="MSRV"></a>
 </p>
 
@@ -54,7 +53,7 @@ Rango is **not** a distributed database, a full MongoDB replacement, or a cloud 
 ```toml
 # Cargo.toml
 [dependencies]
-rango-sdk = "0.1"
+rango-sdk = { git = "https://github.com/antonygiomarxdev/rango", package = "rango-sdk" }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -96,7 +95,7 @@ RANGO_TOKEN=secret ./target/release/rango-server --port 8080 --data ./server-dat
 ### CLI
 
 ```bash
-cargo install rango-cli
+cargo install --git https://github.com/antonygiomarxdev/rango --package rango-cli
 
 rango init ./my-data
 rango import --collection events ./dump.jsonl
@@ -134,18 +133,18 @@ Full architecture: [docs/architecture.md](docs/architecture.md)
 
 ## Crates
 
-| Crate | Description | Crates.io |
-|-------|-------------|-----------|
-| `rango-types` | Shared primitives: DocumentId, Revision, Mutation, Checkpoint | [![](https://img.shields.io/crates/v/rango-types.svg)](https://crates.io/crates/rango-types) |
-| `rango-storage` | Pluggable KV engine + AES-256-GCM encryption | [![](https://img.shields.io/crates/v/rango-storage.svg)](https://crates.io/crates/rango-storage) |
-| `rango-index` | Primary and secondary index management | [![](https://img.shields.io/crates/v/rango-index.svg)](https://crates.io/crates/rango-index) |
-| `rango-query` | Filter, projection, sort, update operators | [![](https://img.shields.io/crates/v/rango-query.svg)](https://crates.io/crates/rango-query) |
-| `rango-oplog` | Append-only operation log with compaction | [![](https://img.shields.io/crates/v/rango-oplog.svg)](https://crates.io/crates/rango-oplog) |
-| `rango-sync` | Incremental sync engine + conflict resolution | [![](https://img.shields.io/crates/v/rango-sync.svg)](https://crates.io/crates/rango-sync) |
-| `rango-core` | Engine orchestrating all subsystems | [![](https://img.shields.io/crates/v/rango-core.svg)](https://crates.io/crates/rango-core) |
-| `rango-server` | Axum-based HTTP sync server | [![](https://img.shields.io/crates/v/rango-server.svg)](https://crates.io/crates/rango-server) |
-| `rango-sdk` | Public Rust SDK | [![](https://img.shields.io/crates/v/rango-sdk.svg)](https://crates.io/crates/rango-sdk) |
-| `rango` | CLI tool | [![](https://img.shields.io/crates/v/rango.svg)](https://crates.io/crates/rango) |
+| Crate | Description |
+|-------|-------------|
+| `rango-types` | Shared primitives: DocumentId, Revision, Mutation, Checkpoint |
+| `rango-storage` | Pluggable KV engine + AES-256-GCM encryption |
+| `rango-index` | Primary and secondary index management |
+| `rango-query` | Filter, projection, sort, update operators |
+| `rango-oplog` | Append-only operation log with compaction |
+| `rango-sync` | Incremental sync engine + conflict resolution |
+| `rango-core` | Engine orchestrating all subsystems |
+| `rango-server` | Axum-based HTTP sync server |
+| `rango-sdk` | Public Rust SDK |
+| `rango-cli` | CLI tool |
 
 ---
 
@@ -209,6 +208,32 @@ MSRV bumps require a minor version bump and are announced in the changelog.
 
 ---
 
+## Licensing
+
+Rango is **source-available**, not OSI open source.
+
+The repository is licensed under **Business Source License 1.1** with a project-specific
+Additional Use Grant designed to keep the code accessible to builders and smaller teams,
+while requiring a paid commercial license for large organizations and monetized platform use.
+
+You can generally use Rango without a separate commercial license for:
+
+- personal, educational, research, and evaluation use
+- open-source projects and non-profits
+- internal self-hosted use by organizations below the commercial threshold
+- small teams with fewer than 25 employees and less than USD 2,000,000 annual revenue
+
+A separate commercial license is required for:
+
+- hosted or managed services offered to third parties
+- embedded commercial products distributed to third parties
+- organizations at or above either commercial threshold
+- cloud providers, hyperscalers, and competitive offerings
+
+See [LICENSE](LICENSE) for the binding terms and [LICENSING.md](LICENSING.md) for the practical usage matrix.
+
+---
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
@@ -218,9 +243,7 @@ Bug reports, feature requests, and discussions go in [GitHub Issues](https://git
 
 ## License
 
-Dual-licensed under your choice of:
+Source-available under [Business Source License 1.1](LICENSE) with a project-specific Additional Use Grant.
 
-- [MIT License](LICENSE-MIT)
-- [Apache License, Version 2.0](LICENSE-APACHE)
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Rango shall be dual-licensed as above, without any additional terms or conditions.
+Commercial licenses are available for hosted, embedded, large-enterprise, and competitive uses.
+See [LICENSING.md](LICENSING.md) for the practical policy.

@@ -22,4 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Criterion benchmarks and 53+ unit/integration/property tests
 - Architecture docs, ADRs, and sync protocol specification
 
+### Changed
+- Repository licensing moved to Business Source License 1.1 with a project-specific Additional Use Grant
+- Crate manifests now point to the repository license file and are marked `publish = false` until package distribution is explicitly enabled
+
 [Unreleased]: https://github.com/antonygiomarxdev/rango/compare/HEAD...HEAD

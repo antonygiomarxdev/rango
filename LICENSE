@@ -1,0 +1,55 @@
+Business Source License 1.1
+
+Parameters for Licensor: Rango Contributors
+Licensed Work: Rango, including all source code, build files, examples, and
+documentation in this repository, but excluding third-party dependencies.
+Change Date: 2030-04-22
+Change License: Apache License, Version 2.0
+
+Additional Use Grant
+
+You may make Production Use of the Licensed Work without purchasing a separate
+commercial license only if all of the following are true:
+
+1. The use is by an individual, a non-profit, an educational institution, a
+   public-sector entity, or an organization with both:
+   a. fewer than 25 employees, and
+   b. less than USD 2,000,000 in annual gross revenue.
+
+2. The Licensed Work is used only for one or more of the following:
+   a. personal, educational, research, or evaluation purposes,
+   b. open-source development,
+   c. internal self-hosted workloads of the qualifying organization, or
+   d. non-commercial products distributed at no fee.
+
+3. The Licensed Work is not:
+   a. provided to third parties as a hosted, managed, or software-as-a-service
+      offering,
+   b. embedded into a commercial product or appliance distributed to third
+      parties,
+   c. used by or on behalf of a cloud provider, hyperscaler, platform provider,
+      or managed service provider as part of a paid or monetized offering, or
+   d. used to develop, operate, market, or provide a Competitive Offering.
+
+For purposes of this license, a Competitive Offering means a product or service
+that materially competes with Rango as embedded document database software,
+edge synchronization infrastructure, or developer-facing persistence and sync
+platform tooling.
+
+If your use does not satisfy every condition above, you must obtain a separate
+commercial license from the repository owner before any Production Use.
+
+This repository is offered under the Business Source License 1.1. The full BSL
+1.1 text applies together with the project parameters above and is incorporated
+here by reference: https://mariadb.com/bsl11/
+
+Plain-English summary
+
+- Builders, hobby projects, research, open-source projects, and small internal
+  teams can use Rango without a paid commercial license.
+- Larger companies, hosted services, embedded commercial products, cloud
+  providers, and competitive offerings need a paid commercial license.
+- On the Change Date, this repository transitions to Apache License 2.0.
+
+This summary is informational only. The Business Source License 1.1 and the
+project parameters above control.

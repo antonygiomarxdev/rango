@@ -1,0 +1,27 @@
+edition = "2024"
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Functions & structs
+fn_args_layout = "Tall"
+trailing_comma = "Vertical"
+trailing_semicolon = true
+use_small_heuristics = "Default"
+
+# Comments
+wrap_comments = true
+comment_width = 100
+normalize_comments = true
+normalize_doc_attributes = true
+
+# Misc
+force_explicit_abi = true
+format_macro_matchers = true
+format_strings = false
+hex_literal_case = "Upper"

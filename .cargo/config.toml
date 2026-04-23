@@ -1,0 +1,16 @@
+[build]
+# Show all warnings even for dependencies during CI
+# rustflags = ["-D", "warnings"]  # Enabled in CI via RUSTFLAGS env var
+
+[alias]
+# Workspace-wide shortcuts
+lint   = "clippy --workspace --all-targets --all-features -- -D warnings"
+fmt-check = "fmt --all -- --check"
+test-all  = "test --workspace --all-features"
+bench-all = "bench --workspace"
+
+[net]
+retry = 2
+
+[profile.release]
+# Already handled in Cargo.toml workspace profiles

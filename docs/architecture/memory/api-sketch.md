@@ -51,6 +51,7 @@ pub enum WritePayload {
 
 `promotion_path` is explicit and policy-gated for transitions such as `episodic -> semantic`.
 Promotion is never implicit in CRUD operations.
+Server runtime exposes this path at `POST /promote` and enforces it before append.
 
 ## Policy Hooks
 
@@ -88,7 +89,7 @@ pub trait AuditSink {
 ## Deterministic Hook Order
 
 - `write_path`: `validate -> trust score -> audit/anomaly`
-- `read_path`: `retrieval gate -> bounded-context filter -> audit/anomaly`
+- `read_path`: `retrieval gate -> audit -> anomaly -> bounded-context filter`
 - `promotion_path`: `sanitize -> gate -> audit/anomaly`
 
 ## Baseline Implementation

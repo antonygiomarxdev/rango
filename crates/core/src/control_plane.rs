@@ -219,7 +219,7 @@ impl ControlPlane {
     }
 
     /// Deterministic read hook order:
-    /// 1) retrieval gate, 2) bounded-context filter, 3) audit/anomaly signaling.
+    /// 1) retrieval gate, 2) read audit, 3) read anomaly, 4) bounded-context filter.
     pub fn read_path(
         &self,
         request: &ReadRequest,

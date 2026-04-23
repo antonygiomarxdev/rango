@@ -226,7 +226,7 @@ pub async fn handle_pull(
 
     let candidates: Vec<Document> = scoped_entries
         .iter()
-        .filter_map(|e| e.mutation.patch.clone())
+        .filter_map(add_candidate_identity)
         .collect();
     let read_request = ReadRequest {
         tenant_id: req.tenant_id.clone(),
@@ -246,19 +246,21 @@ pub async fn handle_pull(
         }));
     }
 
-    let mut allowed_patch_counts: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut allowed_identity_counts: HashMap<(u64, String), usize> = HashMap::new();
     for candidate in &filtered_candidates {
-        let key = document_key(candidate);
-        *allowed_patch_counts.entry(key).or_insert(0) += 1;
+        let Some(key) = candidate_identity(candidate) else {
+            continue;
+        };
+        *allowed_identity_counts.entry(key).or_insert(0) += 1;
     }
 
     let mut mutations: Vec<Mutation> = Vec::new();
     for entry in scoped_entries {
-        let Some(patch) = entry.mutation.patch.as_ref() else {
+        if entry.mutation.patch.is_none() {
             continue;
-        };
-        let key = document_key(patch);
-        let Some(remaining) = allowed_patch_counts.get_mut(&key) else {
+        }
+        let key = (entry.seq, entry.mutation.write_id.clone());
+        let Some(remaining) = allowed_identity_counts.get_mut(&key) else {
             continue;
         };
         if *remaining > 0 {
@@ -380,6 +382,9 @@ pub async fn handle_promote(
     }))
 }
 
+const IDENTITY_SEQ_FIELD: &str = "__rango_candidate_seq";
+const IDENTITY_WRITE_ID_FIELD: &str = "__rango_candidate_write_id";
+
 fn append_mutation(
     state: &ServerState,
     mutation: Mutation,
@@ -410,6 +415,15 @@ fn append_mutation(
     state.oplog.append(entry)
 }
 
-fn document_key(doc: &Document) -> Vec<u8> {
-    format!("{doc:?}").into_bytes()
+fn add_candidate_identity(entry: &OplogEntry) -> Option<Document> {
+    let mut candidate = entry.mutation.patch.clone()?;
+    candidate.insert(IDENTITY_SEQ_FIELD, entry.seq as i64);
+    candidate.insert(IDENTITY_WRITE_ID_FIELD, entry.mutation.write_id.clone());
+    Some(candidate)
+}
+
+fn candidate_identity(candidate: &Document) -> Option<(u64, String)> {
+    let seq = candidate.get_i64(IDENTITY_SEQ_FIELD).ok()? as u64;
+    let write_id = candidate.get_str(IDENTITY_WRITE_ID_FIELD).ok()?.to_string();
+    Some((seq, write_id))
 }

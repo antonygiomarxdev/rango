@@ -389,6 +389,7 @@ fn test_control_plane_hook_invocation_order_write_and_read() {
     assert_eq!(filtered.len(), 1);
 
     let order = order.lock().unwrap().clone();
+    // Canonical runtime order: read.gate -> read.audit -> read.anomaly -> read.filter.
     assert_eq!(
         order,
         vec![

@@ -157,32 +157,3 @@ jobs:
   # Publish to crates.io
   # ---------------------------------------------------------------------------
   publish:
-    name: Publish to crates.io
-    needs: release
-    runs-on: ubuntu-latest
-    environment: crates-io
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      # Publish in dependency order
-      - run: cargo publish --package rango-types --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20  # crates.io index propagation
-      - run: cargo publish --package rango-storage --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-index --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-query --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-oplog --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-sync --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-server --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango-sdk --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - run: sleep 20
-      - run: cargo publish --package rango --token ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -1,0 +1,77 @@
+{
+  "version": "1.0.0",
+  "description": "Baseline memory contract for OpenClaw on top of Rango.",
+  "scope": {
+    "tenant_id": "default",
+    "namespace": "openclaw"
+  },
+  "collections": {
+    "agent_state": {
+      "kind": "state",
+      "mutability": "mutable",
+      "record_shape": {
+        "id": "agent:{agent_id}",
+        "agent_id": "string",
+        "status": "idle|running|blocked|error",
+        "active_task_id": "string|null",
+        "updated_at": "rfc3339"
+      }
+    },
+    "task_state": {
+      "kind": "state",
+      "mutability": "mutable",
+      "record_shape": {
+        "id": "task:{task_id}",
+        "task_id": "string",
+        "agent_id": "string",
+        "state": "queued|running|waiting|done|failed",
+        "summary": "string",
+        "updated_at": "rfc3339"
+      }
+    },
+    "episodes": {
+      "kind": "event",
+      "mutability": "append_only",
+      "record_shape": {
+        "id": "evt:{event_id}",
+        "event_type": "tool_call|tool_result|decision|error|interaction",
+        "agent_id": "string",
+        "task_id": "string|null",
+        "payload": "object",
+        "created_at": "rfc3339",
+        "trust_score": "number"
+      }
+    },
+    "facts": {
+      "kind": "semantic",
+      "mutability": "upsert",
+      "record_shape": {
+        "id": "fact:{fact_id}",
+        "entity_key": "string",
+        "fact": "string",
+        "confidence": "number",
+        "source_event_ids": [
+          "string"
+        ],
+        "verified": "boolean",
+        "updated_at": "rfc3339"
+      }
+    }
+  },
+  "policies": {
+    "write_policy": {
+      "episodes": "write_all_significant_events",
+      "state": "upsert_only_active_truth",
+      "facts": "promote_only_with_confidence_or_repetition"
+    },
+    "read_policy": {
+      "episodes_window": 50,
+      "facts_limit": 10,
+      "state_priority": [
+        "agent_state",
+        "task_state"
+      ],
+      "hard_context_budget_tokens": 2500
+    }
+  }
+}

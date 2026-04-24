@@ -161,6 +161,7 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-e2e.ps1
 - [Memory Model](docs/architecture/memory/model.md)
 - [API Reference](docs/reference/api.md)
 - [Sync Protocol](docs/reference/sync-protocol.md)
+- [OpenClaw Integration Guide](docs/integrations/openclaw.md)
 - [Security](docs/operations/security.md)
 - [ADRs](docs/adr/)
 

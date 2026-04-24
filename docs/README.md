@@ -18,5 +18,9 @@
 - [Security](operations/security.md)
 - [Release Process](operations/release.md)
 
+## Integrations
+- [OpenClaw Integration Guide](integrations/openclaw.md)
+- [OpenClaw Memory Contract (JSON)](integrations/openclaw-memory-contract.json)
+
 ## ADRs
 - [ADR Directory](adr/)

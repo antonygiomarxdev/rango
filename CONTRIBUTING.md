@@ -30,7 +30,7 @@ Harassment or discriminatory behavior of any kind will not be tolerated.
 | Feature request | [Open a discussion](https://github.com/antonygiomarxdev/rango/discussions) first |
 | Documentation | PRs welcome — edit files under `docs/` |
 | Code | Fork → branch → PR (see below) |
-| Security vulnerability | See [SECURITY.md](docs/SECURITY.md) — **do not open a public issue** |
+| Security vulnerability | See [security.md](docs/operations/security.md) — **do not open a public issue** |
 
 ---
 

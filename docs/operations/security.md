@@ -1,4 +1,4 @@
-# Security Policy — Rango (Project Atlas)
+﻿# Security Policy â€” Rango (Project Atlas)
 
 **Last updated:** 2026-04-23
 **Scope:** All crates in the Rango workspace, CLI, server, and SDK.
@@ -8,21 +8,21 @@
 ## 1. Threat Model
 
 ### Assets
-- **Local database files** (documents, oplog, sync queue, checkpoints)
+- **Local memory substrate files** (documents, oplog, sync queue, checkpoints)
 - **Sync credentials** (Bearer tokens, node identifiers)
 - **User data** (BSON documents with potentially sensitive fields)
 - **Server state** (primary node oplog, authentication tokens)
 
 ### Threat Actors
-- **Local attacker with filesystem access** — can read/copy database files
-- **Network attacker** — can intercept or manipulate sync traffic (MITM)
-- **Malicious client** — can send crafted sync requests to server
-- **Supply-chain attacker** — can compromise dependencies
+- **Local attacker with filesystem access** â€” can read/copy local memory files
+- **Network attacker** â€” can intercept or manipulate sync traffic (MITM)
+- **Malicious client** â€” can send crafted sync requests to server
+- **Supply-chain attacker** â€” can compromise dependencies
 
 ### Trust Boundaries
-- **Trust boundary 1:** Application process ↔ filesystem (encrypted at rest mitigates)
-- **Trust boundary 2:** Edge node ↔ network ↔ primary server (TLS + auth tokens)
-- **Trust boundary 3:** User input ↔ engine (validation, size limits, path sanitization)
+- **Trust boundary 1:** Application process â†” filesystem (encrypted at rest mitigates)
+- **Trust boundary 2:** Edge node â†” network â†” primary server (TLS + auth tokens)
+- **Trust boundary 3:** User input â†” engine (validation, size limits, path sanitization)
 
 ---
 
@@ -37,17 +37,17 @@
 | SEC-003 | **High** | CLI accepted arbitrary paths including `../` sequences, enabling path traversal to sensitive directories | Added `sanitize_path()` function that rejects paths containing parent directory references | Fixed |
 | SEC-004 | **High** | Server endpoints had **no request body size limit**, enabling DoS via multi-gigabyte JSON payloads | Added `DefaultBodyLimit::max(10MB)` to axum router | Fixed |
 | SEC-005 | **Medium** | Auth tokens stored as plain `String` in memory with no secure clearing | Documented as accepted risk (see below); `zeroize` integration planned for Phase 7 completion | Accepted |
-| SEC-006 | **Medium** | Sync protocol uses HTTP by default without TLS enforcement | Documented — **operators must use HTTPS/reverse proxy in production** | Accepted |
+| SEC-006 | **Medium** | Sync protocol uses HTTP by default without TLS enforcement | Documented â€” **operators must use HTTPS/reverse proxy in production** | Accepted |
 | SEC-007 | **Medium** | No rate limiting on server push/pull endpoints | Planned for Phase 7 completion; currently mitigated by body size limit and network perimeter | Accepted |
 | SEC-008 | **Medium** | Single static Bearer token per node with no expiration/refresh | Documented as MVP limitation; JWT or mTLS planned for post-pilot | Accepted |
 | SEC-009 | **Low** | No audit log of who performed which mutation | Planned for server-side logging enhancement | Accepted |
-| SEC-010 | **Low** | `MemoryStorage` backend does not zero memory on drop | Documented — only for dev/testing; production will use file-based backend with encryption | Accepted |
+| SEC-010 | **Low** | `MemoryStorage` backend does not zero memory on drop | Documented â€” only for dev/testing; production will use file-based backend with encryption | Accepted |
 
 ### Dependency Security Review
 
 | Dependency | Version | Known CVEs | Assessment |
 |------------|---------|------------|------------|
-| `bson` | 3.1.0 | None known | Official MongoDB driver crate, actively maintained |
+| `bson` | 3.1.0 | None known | Official BSON crate, actively maintained |
 | `axum` | 0.8.9 | None known | Tokio ecosystem, security-responsive team |
 | `aes-gcm` | 0.10.3 | None known | RustCrypto, audited implementation |
 | `pbkdf2` | 0.12.2 | None known | RustCrypto, standard implementation |
@@ -68,7 +68,7 @@
 
 - **Algorithm:** AES-256-GCM (authenticated encryption)
 - **Key derivation:** PBKDF2-HMAC-SHA256 with **600,000 iterations**
-- **Salt:** 16 bytes, randomly generated per database, stored in `salt` file
+- **Salt:** 16 bytes, randomly generated per workspace, stored in `salt` file
 - **Nonce:** 12 bytes, randomly generated per encryption operation, prepended to ciphertext
 - **Scope:** Oplog, sync queue, and checkpoint files are encrypted when `--passphrase` is provided at `rango init`
 - **Limitation:** Document storage encryption is pending the storage engine decision (fjall vs redb). Current `MemoryStorage` does not persist to disk.
@@ -86,7 +86,7 @@
 
 Before running Rango in production or pilot environments:
 
-- [ ] Initialize database **with passphrase**: `rango init --passphrase "..."`
+- [ ] Initialize memory workspace **with passphrase**: `rango init --passphrase "..."`
 - [ ] Store the passphrase in a secrets manager (never in shell history or env vars)
 - [ ] Deploy server behind HTTPS reverse proxy with valid TLS certificate
 - [ ] Generate strong, unique token per node: `openssl rand -hex 32`
@@ -94,7 +94,7 @@ Before running Rango in production or pilot environments:
 - [ ] Enable OS-level filesystem encryption as defense-in-depth
 - [ ] Run `cargo audit` in CI and address all HIGH/CRITICAL findings
 - [ ] Monitor server logs for repeated 401/403 errors (potential brute force)
-- [ ] Backup `salt` file alongside database — **loss of salt = irrecoverable data**
+- [ ] Backup `salt` file alongside memory workspace â€” **loss of salt = irrecoverable data**
 - [ ] Schedule `rango doctor` periodically to check storage integrity
 
 ---
@@ -104,7 +104,7 @@ Before running Rango in production or pilot environments:
 If you discover a vulnerability in Rango:
 
 1. **Do NOT open a public issue.**
-2. Email security details to: [security@rango-db.dev] (placeholder — update when real)
+2. Email security details to: [security@rango.dev] (placeholder â€” update when real)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -174,3 +174,4 @@ With a machine-readable reason string (for example: `node_mismatch`, `tenant_mis
   - validates hook invocation ordering and low-trust rejection behavior.
 - `cargo test -p rango-sync --test e2e_sync_test`
   - validates cross-tenant rejection and auditable trust-based rejection over push/pull protocol.
+

@@ -1,4 +1,4 @@
-# Rango API Reference
+﻿# Rango API Reference
 
 ## SDK (`rango-sdk`)
 
@@ -118,8 +118,8 @@ println!("Sync pulls: {}", metrics.sync_pulls);
 ## CLI
 
 ```bash
-# Initialize database
-rango init ./mydb
+# Initialize local memory workspace
+rango init ./memory-home
 
 # Import documents
 rango import --collection users users.json
@@ -131,15 +131,15 @@ rango export --collection users --output users.json
 rango bench --count 10000
 
 # Diagnostics
-rango doctor ./mydb
+rango doctor ./memory-home
 
 # Sync with remote server
-rango sync ./mydb --server http://localhost:8080 --token my-secret-token
+rango sync ./memory-home --server http://localhost:8080 --token my-secret-token
 ```
 
 ## BSON Types
 
-Rango uses BSON natively. When importing from MongoDB Extended JSON:
+Rango uses BSON natively. When importing from Extended JSON/BSON representations:
 
 | Extended JSON | BSON Type |
 |---------------|-----------|
@@ -153,9 +153,10 @@ Rango uses BSON natively. When importing from MongoDB Extended JSON:
 
 The following fields are managed by Rango and should not be modified directly:
 
-- `_id` — Document identifier (UUID v7 or preserved ObjectId)
-- `_rev` — Hybrid Logical Clock revision string
-- `_updated_at` — Last modification timestamp
-- `_source_node` — Node that made the last modification
-- `_deleted` — Tombstone flag
-- `_conflicts` — Array of conflicting versions
+- `_id` â€” Document identifier (UUID v7 or preserved ObjectId)
+- `_rev` â€” Hybrid Logical Clock revision string
+- `_updated_at` â€” Last modification timestamp
+- `_source_node` â€” Node that made the last modification
+- `_deleted` â€” Tombstone flag
+- `_conflicts` â€” Array of conflicting versions
+

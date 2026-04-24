@@ -1,20 +1,19 @@
-# Rango Vision
+﻿# Rango Vision
 
 ## Mission
-Crear el mejor motor documental embebido local-first para sistemas edge y offline.
+Construir la capa de memoria durable y gobernable para sistemas de IA con estado.
 
 ## What This Is
-Rango es una base de datos documental embebida en Rust donde los documentos,
-el sync incremental y la semántica de colecciones son parte del core — no una
-capa sobre SQL + JSON.
+Rango es un substrate local-first de memoria documental para continuidad operativa: estado actual, historial episodico y memoria derivada, con durabilidad, replay y sync incremental.
 
 ## What This Is Not
-- No es un reemplazo completo de MongoDB.
-- No es SQLite con JSON.
-- No es una solución analytics.
+- No es un producto de workflows.
+- No es una capa de negocio de agentes.
+- No es un almacenamiento generico sin semantica de memoria.
 
 ## Principles
-1. **Local-first real**: la copia útil del dato vive localmente.
-2. **Semántica documental**: documentos como primitiva natural.
-3. **Sync incremental**: solo cambios, no snapshots completos.
-4. **Extensibilidad**: traits estables para storage, index, sync transport.
+1. **Memory-first**: el modelo sigue como un sistema stateful recuerda y actua.
+2. **State vs History**: estado operativo e historial inmutable son capas distintas.
+3. **Durability-first**: oplog, checkpoints y replay antes de capas de inteligencia.
+4. **Governed memory**: write/read/promotion bajo politicas explicitas.
+5. **Layer discipline**: retrieval avanzado como proyeccion externa, no verdad canonica.

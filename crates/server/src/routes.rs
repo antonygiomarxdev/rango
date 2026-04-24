@@ -17,9 +17,11 @@ use rango_sync::protocol::{
 };
 use rango_types::{
     Checkpoint, GovernanceDecision, MemoryTier, Mutation, OplogEntry, OplogOrigin, PolicyDecision,
-    RangoError,
+    RangoError, RetrievalCapabilityRequest, RetrievalCapabilityResponse, RetrievalStatus,
 };
 use tracing::{info, instrument};
+
+use crate::retrieval::{RetrievalRuntime, ranking::rank_candidates_v1};
 
 #[derive(Debug, Clone)]
 pub struct AuthPrincipal {
@@ -35,6 +37,7 @@ pub struct ServerState {
     pub control_plane: Arc<ControlPlane>,
     containment: Mutex<HashMap<(String, String), ContainmentState>>,
     audit_counter: AtomicU64,
+    retrieval_runtime: RetrievalRuntime,
 }
 
 impl ServerState {
@@ -51,6 +54,7 @@ impl ServerState {
             control_plane,
             containment: Mutex::new(HashMap::new()),
             audit_counter: AtomicU64::new(0),
+            retrieval_runtime: RetrievalRuntime::fallback_only(),
         }
     }
 
@@ -492,6 +496,91 @@ pub async fn handle_pull(
         new_checkpoint,
         audit: vec![read_decision],
     }))
+}
+
+#[instrument(skip(state, req))]
+pub async fn handle_retrieval_read(
+    Extension(state): Extension<Arc<ServerState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<RetrievalCapabilityRequest>,
+) -> Result<Json<RetrievalCapabilityResponse>, StatusCode> {
+    let protocol_version = headers
+        .get("X-Rango-Protocol-Version")
+        .and_then(|v| v.to_str().ok());
+    if protocol_version != Some("1") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
+    let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
+    if principal.tenant_id != req.tenant_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let request = ReadRequest {
+        tenant_id: req.tenant_id.clone(),
+        namespace: req.namespace.clone(),
+        tier: MemoryTier::State,
+        limit: req.limit,
+    };
+
+    let response = match state.retrieval_runtime.retrieve(&req) {
+        Ok(candidates) => {
+            let ranked = rank_candidates_v1(candidates);
+            let docs: Vec<Document> = ranked.iter().map(|candidate| candidate.payload.clone()).collect();
+            let (decision, filtered) = state
+                .control_plane
+                .read_path(&request, docs)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            let filtered_ids: std::collections::HashSet<String> = filtered
+                .iter()
+                .filter_map(|doc| doc.get_str("candidate_id").ok().map(ToString::to_string))
+                .collect();
+            let bounded_ranked = ranked
+                .into_iter()
+                .filter(|candidate| filtered_ids.contains(&candidate.candidate_id))
+                .take(req.limit)
+                .collect::<Vec<_>>();
+
+            state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+            let _ = state.persist_audit_evidence(
+                "retrieval",
+                &req.tenant_id,
+                &req.namespace,
+                None,
+                &decision,
+            );
+            RetrievalCapabilityResponse {
+                status: RetrievalStatus::Healthy,
+                retrieval_status_reason: decision.reason,
+                canonical_fallback: false,
+                candidates: bounded_ranked,
+            }
+        }
+        Err(err) => {
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Sanitize,
+                reason: err.reason.clone(),
+            };
+            state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+            let _ = state.persist_audit_evidence(
+                "retrieval",
+                &req.tenant_id,
+                &req.namespace,
+                None,
+                &decision,
+            );
+            RetrievalCapabilityResponse {
+                status: RetrievalStatus::Degraded,
+                retrieval_status_reason: err.reason,
+                canonical_fallback: true,
+                candidates: Vec::new(),
+            }
+        }
+    };
+
+    Ok(Json(response))
 }
 
 #[instrument(skip(state, req))]

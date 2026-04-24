@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::Extension;
-use rango_oplog::memory::InMemoryOplog;
+use rango_oplog::NullOplog;
 use rango_server::routes::{handle_retrieval_read, ServerState};
 use rango_types::{RetrievalCapabilityRequest, RetrievalStatus};
 
@@ -16,7 +16,7 @@ fn headers() -> HeaderMap {
 
 #[tokio::test]
 async fn retrieval_timeout_degrades_to_canonical_safe_response() {
-    let state = Arc::new(ServerState::new(Arc::new(InMemoryOplog::default())));
+    let state = Arc::new(ServerState::new(Arc::new(NullOplog::new())));
     state.add_token_with_tenant("token-1", "node-1", "tenant-a");
 
     let response = handle_retrieval_read(

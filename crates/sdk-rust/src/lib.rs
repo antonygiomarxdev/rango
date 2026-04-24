@@ -6,6 +6,10 @@ use rango_types::MemoryTier;
 
 pub use client::*;
 pub use migrate::*;
+pub use rango_types::{
+    RankingExplainability, RankingSignals, RetrievalCandidate, RetrievalCapabilityRequest,
+    RetrievalCapabilityResponse, RetrievalSource, RetrievalStatus,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DerivedReadLabel {

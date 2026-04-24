@@ -12,6 +12,16 @@ Rango is a durable memory and state substrate for stateful AI systems:
 - replay, sync, governance, and safety as first-class concerns
 - strict separation between canonical truth and derived projections
 
+## Product Identity
+
+Rango is not a generic database product and not a workflow engine.
+
+Rango is:
+
+- a memory/state substrate for stateful AI runtimes
+- canonical state + append-only episodes + governed derivations
+- local-first embedded runtime with sync and replay
+
 ## Phases
 
 ### Phase 1: Durable Substrate
@@ -66,6 +76,35 @@ Success criteria:
 - vector and graph capability boundaries outside core
 - trust-aware ranking + bounded context assembly
 - stable capability contracts and fallback behavior
+
+## Execution Focus by Version
+
+### v0.1.0 (Adoption Baseline)
+
+Deliver a usable and trustworthy integration baseline for external products.
+
+- canonical metadata enforcement end-to-end in write/read paths
+- policy enforcement in control-plane hooks (write/read/promotion)
+- snapshot/rollback deterministic recovery tests
+- tenant/namespace isolation hardening in sync/server paths
+- integration-ready SDK contract and onboarding path (OpenClaw + generic)
+
+### v0.2.0 (Hardening Baseline)
+
+Make security/governance observable and production-safe.
+
+- audit trail completeness for memory operations
+- anomaly signals and containment hooks
+- poisoning regression suite and trust-aware safety tests
+- release-grade operational docs and upgrade guidance
+
+### v0.3.0 (Capabilities Baseline)
+
+Enable advanced retrieval capabilities without contaminating core truth.
+
+- external vector/graph capability contracts
+- bounded context assembly adapters with trust-aware ranking inputs
+- projection rebuild/invalidation toolchain hardening
 
 ## GitHub Execution Model
 

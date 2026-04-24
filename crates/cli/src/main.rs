@@ -39,6 +39,9 @@ enum Commands {
     },
     /// Import documents from a file
     Import {
+        /// Path to the database
+        #[arg(long, default_value = ".rango")]
+        path: PathBuf,
         /// Collection name to import into
         #[arg(short, long)]
         collection: String,
@@ -48,9 +51,15 @@ enum Commands {
         /// Import format
         #[arg(short, long, value_enum, default_value = "json")]
         format: ImportFormat,
+        /// Encryption passphrase (required if database was initialized with encryption)
+        #[arg(long)]
+        passphrase: Option<String>,
     },
     /// Export documents to a file
     Export {
+        /// Path to the database
+        #[arg(long, default_value = ".rango")]
+        path: PathBuf,
         /// Collection name to export from
         #[arg(short, long)]
         collection: String,
@@ -60,6 +69,9 @@ enum Commands {
         /// Export format
         #[arg(short, long, value_enum, default_value = "json")]
         format: ExportFormat,
+        /// Encryption passphrase (required if database was initialized with encryption)
+        #[arg(long)]
+        passphrase: Option<String>,
     },
     /// Run benchmarks
     Bench {
@@ -131,6 +143,10 @@ async fn main() -> Result<()> {
             });
             std::fs::write(&config_path, config_json.to_string())?;
 
+            // Initialize persistent storage backend (redb) and oplog files.
+            let _storage = rango_storage::RedbStorage::open(path.join("data.redb"))?;
+            let _oplog = rango_oplog::FileOplog::new(path.join("oplog.rgo"))?;
+
             if let Some(mut pass) = passphrase {
                 let mut salt = [0u8; 16];
                 rand::thread_rng().fill_bytes(&mut salt);
@@ -149,19 +165,20 @@ async fn main() -> Result<()> {
                 println!("  Encryption: disabled");
             }
 
-            println!("Initialized Rango database at {}", path.display());
+            println!("Initialized Rango memory workspace at {}", path.display());
             println!(
                 "  Max document size: {} bytes",
                 config.max_document_size_bytes
             );
             println!("  Memory budget: {} bytes", config.memory_budget_bytes);
+            println!("  Storage engine: redb (default)");
         }
         Commands::Inspect { path } => {
             let path = sanitize_path(&path)?;
             if !path.exists() {
                 anyhow::bail!("Database not found at {}", path.display());
             }
-            println!("Rango database at {}", path.display());
+            println!("Rango memory workspace at {}", path.display());
             println!("  Status: OK");
 
             let config = load_config(&path);
@@ -171,27 +188,30 @@ async fn main() -> Result<()> {
             );
             println!("  Memory budget: {} bytes", config.memory_budget_bytes);
 
-            // Try to open and count collections
-            let storage = Arc::new(rango_storage::MemoryStorage::new());
-            let oplog = Arc::new(rango_oplog::NullOplog::new());
-            let _client = rango_sdk::RangoClient::open(storage, oplog, "cli-node")?;
+            let _client = open_persistent_client(&path, "cli-node", None)?;
+            let data_path = path.join("data.redb");
+            if data_path.exists() {
+                let size = std::fs::metadata(&data_path)?.len();
+                println!("  Storage file: {} ({} bytes)", data_path.display(), size);
+            }
 
             // For now, just show placeholder
             println!("  Collections: (not yet trackable)");
             println!("  Documents: (not yet trackable)");
         }
         Commands::Import {
+            path,
             collection,
             file,
             format: _,
+            passphrase,
         } => {
+            let path = sanitize_path(&path)?;
             if !file.exists() {
                 anyhow::bail!("Import file not found: {}", file.display());
             }
 
-            let storage = Arc::new(rango_storage::MemoryStorage::new());
-            let oplog = Arc::new(rango_oplog::NullOplog::new());
-            let client = rango_sdk::RangoClient::open(storage, oplog, "cli-node")?;
+            let client = open_persistent_client(&path, "cli-node", passphrase.as_deref())?;
 
             println!(
                 "Importing into collection '{}' from {}...",
@@ -207,13 +227,14 @@ async fn main() -> Result<()> {
             );
         }
         Commands::Export {
+            path,
             collection,
             output,
             format: _,
+            passphrase,
         } => {
-            let storage = Arc::new(rango_storage::MemoryStorage::new());
-            let oplog = Arc::new(rango_oplog::NullOplog::new());
-            let client = rango_sdk::RangoClient::open(storage, oplog, "cli-node")?;
+            let path = sanitize_path(&path)?;
+            let client = open_persistent_client(&path, "cli-node", passphrase.as_deref())?;
 
             println!(
                 "Exporting collection '{}' to {}...",
@@ -296,7 +317,7 @@ fn run_benchmarks(count: usize) -> Result<()> {
     // Filter benchmark
     println!("\nFilter Benchmark (find by field)");
     let start = Instant::now();
-    let mut cursor = client.engine.find(
+    let cursor = client.engine.find(
         &coll,
         &doc! { "index": { "$gte": (count / 2) as i64 } },
         None,
@@ -369,9 +390,7 @@ fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
 
     // Try to open engine
     println!("\nEngine Check");
-    let storage = Arc::new(rango_storage::MemoryStorage::new());
-    let oplog = Arc::new(rango_oplog::NullOplog::new());
-    let client = match rango_sdk::RangoClient::open(storage.clone(), oplog, "doctor-node") {
+    let client = match open_persistent_client(path, "doctor-node", passphrase) {
         Ok(c) => {
             println!("  [OK] Engine opened successfully");
             c
@@ -532,6 +551,22 @@ fn load_crypto(
         }
         Ok(None)
     }
+}
+
+fn open_persistent_client(
+    path: &PathBuf,
+    node_id: &str,
+    passphrase: Option<&str>,
+) -> Result<rango_sdk::RangoClient<rango_storage::RedbStorage>, anyhow::Error> {
+    let config = load_config(path);
+    let storage = Arc::new(rango_storage::RedbStorage::open(path.join("data.redb"))?);
+    let crypto = load_crypto(path, passphrase)?;
+    let oplog = Arc::new(rango_oplog::FileOplog::new_with_crypto(
+        path.join("oplog.rgo"),
+        crypto,
+    )?);
+    let client = rango_sdk::RangoClient::open_with_config(storage, oplog, node_id, config)?;
+    Ok(client)
 }
 
 fn load_config(path: &PathBuf) -> rango_types::RangoConfig {

@@ -1,18 +1,27 @@
-# ADR-001: Storage Engine Decision
+﻿# ADR-001: Storage Engine Decision
 
 ## Status
-Pending — will be decided after Phase 2 spike benchmark.
+Accepted - 2026-04-24
 
 ## Context
-Necesitamos un motor de persistencia embebido en Rust para Rango.
-Las opciones principales son:
-
-- **fjall** (LSM-tree): Write-optimized, múltiples keyspaces nativos, compilación rápida.
-- **redb** (B-tree): MVCC nativo, ACID, formato estable.
+Rango necesita persistencia embebida local-first con durabilidad real para estado operativo y replay.
+La arquitectura ya expone `StorageEngine` como contrato intercambiable y requiere un backend default de produccion para v1.
 
 ## Decision
-TBD — spike benchmark evaluará write throughput, read latency y crash recovery.
+- Backend default de v1: **redb**.
+- `StorageEngine` permanece como contrato estable para permitir swap de backend futuro sin romper `core/sdk/server`.
+- `MemoryStorage` queda restringido a test/dev.
+
+## Rationale
+- `redb` ofrece integracion embebida simple y robusta para una primera entrega de produccion local-first.
+- Permite cerrar el gap actual de durabilidad en disco sin acoplar el resto del motor a un backend unico.
+- Mantiene disciplina de capas: el backend es detalle de infraestructura, no semantica de producto.
 
 ## Consequences
-- El trait `StorageEngine` se diseñó para ser agnóstico al backend.
-- Implementaciones concretas irán en crates separados (`storage-fjall`, `storage-redb`).
+- CLI y rutas operativas deben abrir `RedbStorage` por defecto.
+- Las pruebas de recovery/persistencia deben ejecutarse sobre `redb`.
+- Se preserva la opcion de agregar backend alternativo despues, sin migracion de API publica.
+
+## Follow-ups
+- Definir politicas de compaction/maintenance para el backend persistente.
+- Agregar benchmark comparativo de backends cuando exista candidato real de reemplazo.

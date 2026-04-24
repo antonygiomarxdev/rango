@@ -9,6 +9,11 @@ pub struct Metrics {
     deletes: AtomicU64,
     sync_pushes: AtomicU64,
     sync_pulls: AtomicU64,
+    local_write_latency_us_total: AtomicU64,
+    local_write_latency_us_count: AtomicU64,
+    replay_duration_us_total: AtomicU64,
+    replay_duration_us_count: AtomicU64,
+    replay_drift_detection_count: AtomicU64,
 }
 
 impl Metrics {
@@ -36,11 +41,24 @@ impl Metrics {
         self.sync_pulls.fetch_add(n as u64, Ordering::Relaxed);
     }
 
-    pub fn record_local_write_latency_us(&self, _us: u64) {}
+    pub fn record_local_write_latency_us(&self, us: u64) {
+        self.local_write_latency_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.local_write_latency_us_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
 
-    pub fn record_replay_duration_us(&self, _us: u64) {}
+    pub fn record_replay_duration_us(&self, us: u64) {
+        self.replay_duration_us_total
+            .fetch_add(us, Ordering::Relaxed);
+        self.replay_duration_us_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
 
-    pub fn record_replay_drift_detection(&self) {}
+    pub fn record_replay_drift_detection(&self) {
+        self.replay_drift_detection_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
 
     pub fn snapshot(&self) -> MetricsSnapshot {
         MetricsSnapshot {
@@ -50,6 +68,13 @@ impl Metrics {
             deletes: self.deletes.load(Ordering::Relaxed),
             sync_pushes: self.sync_pushes.load(Ordering::Relaxed),
             sync_pulls: self.sync_pulls.load(Ordering::Relaxed),
+            local_write_latency_us_total: self.local_write_latency_us_total.load(Ordering::Relaxed),
+            local_write_latency_us_count: self.local_write_latency_us_count.load(Ordering::Relaxed),
+            replay_duration_us_total: self.replay_duration_us_total.load(Ordering::Relaxed),
+            replay_duration_us_count: self.replay_duration_us_count.load(Ordering::Relaxed),
+            replay_drift_detection_count: self
+                .replay_drift_detection_count
+                .load(Ordering::Relaxed),
         }
     }
 }
@@ -63,4 +88,9 @@ pub struct MetricsSnapshot {
     pub deletes: u64,
     pub sync_pushes: u64,
     pub sync_pulls: u64,
+    pub local_write_latency_us_total: u64,
+    pub local_write_latency_us_count: u64,
+    pub replay_duration_us_total: u64,
+    pub replay_duration_us_count: u64,
+    pub replay_drift_detection_count: u64,
 }

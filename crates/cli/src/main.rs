@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use rand::RngCore;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroize;
@@ -151,7 +151,7 @@ async fn main() -> Result<()> {
                 let mut salt = [0u8; 16];
                 rand::thread_rng().fill_bytes(&mut salt);
                 let salt_path = path.join("salt");
-                std::fs::write(&salt_path, &salt)?;
+                std::fs::write(&salt_path, salt)?;
                 // Verify round-trip
                 let crypto = rango_storage::CryptoEngine::from_passphrase(&pass, &salt);
                 let test = crypto.encrypt(b"test");
@@ -368,7 +368,7 @@ fn run_benchmarks(count: usize) -> Result<()> {
     Ok(())
 }
 
-fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
+fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     use bson::doc;
     use rango_oplog::Oplog;
     use rango_sync::{CheckpointStore, SyncQueue};
@@ -533,8 +533,8 @@ fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn sanitize_path(path: &PathBuf) -> Result<PathBuf, anyhow::Error> {
-    let path = path.canonicalize().unwrap_or_else(|_| path.clone());
+fn sanitize_path(path: &Path) -> Result<PathBuf, anyhow::Error> {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     if path
         .components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
@@ -545,7 +545,7 @@ fn sanitize_path(path: &PathBuf) -> Result<PathBuf, anyhow::Error> {
 }
 
 fn load_crypto(
-    path: &PathBuf,
+    path: &Path,
     passphrase: Option<&str>,
 ) -> Result<Option<Arc<rango_storage::CryptoEngine>>, anyhow::Error> {
     let salt_path = path.join("salt");
@@ -567,7 +567,7 @@ fn load_crypto(
 }
 
 fn open_persistent_client(
-    path: &PathBuf,
+    path: &Path,
     node_id: &str,
     passphrase: Option<&str>,
 ) -> Result<rango_sdk::RangoClient<rango_storage::RedbStorage>, anyhow::Error> {
@@ -582,7 +582,7 @@ fn open_persistent_client(
     Ok(client)
 }
 
-fn load_config(path: &PathBuf) -> rango_types::RangoConfig {
+fn load_config(path: &Path) -> rango_types::RangoConfig {
     let config_path = path.join("rango.json");
     if let Ok(contents) = std::fs::read_to_string(&config_path) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
@@ -604,7 +604,7 @@ fn load_config(path: &PathBuf) -> rango_types::RangoConfig {
 }
 
 async fn run_sync(
-    path: &PathBuf,
+    path: &Path,
     server: &str,
     token: &str,
     node_id: &str,

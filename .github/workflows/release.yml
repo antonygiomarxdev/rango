@@ -147,11 +147,16 @@ jobs:
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "notes_mode=versioned" >> $GITHUB_OUTPUT
           else
+            VERSION="$(grep -m1 '^version = "' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')"
+            if [[ -z "${VERSION}" ]]; then
+              VERSION="0.0.0"
+            fi
             SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
             TS="$(date -u +%Y%m%d-%H%M)"
-            echo "release_name=Rango Edge ${TS} (${SHORT_SHA})" >> $GITHUB_OUTPUT
-            echo "release_tag=edge-${TS}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "release_name=Rango v${VERSION}-edge.${TS}+${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "release_tag=v${VERSION}-edge-${TS}-${SHORT_SHA}" >> $GITHUB_OUTPUT
             echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "notes_mode=edge" >> $GITHUB_OUTPUT
           fi
 
@@ -176,8 +181,9 @@ jobs:
           elif grep -q "^## \[Unreleased\]" CHANGELOG.md; then
             awk '/^## \[Unreleased\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
           else
+            VERSION="${{ steps.meta.outputs.version }}"
             cat > release_notes.md <<EOF
-          Edge release from main
+          Prerelease for v$VERSION from main
           
           Binary artifacts:
           - rango (CLI)

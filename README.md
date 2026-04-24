@@ -127,6 +127,16 @@ rango sync ./memory --server http://localhost:8080 --token dev-token --node-id n
 
 This allows products other than OpenClaw to use the same substrate with the same core contract.
 
+## Integrations
+
+- OpenClaw: [integration guide](docs/integrations/openclaw.md) + [memory contract](docs/integrations/openclaw-memory-contract.json)
+- Generic product integration pattern: [docs index](docs/README.md)
+
+## Release Naming
+
+- Stable tags: `vX.Y.Z` -> GitHub release name `Rango vX.Y.Z`
+- Main prereleases: `vX.Y.Z-edge-YYYYMMDD-HHMM-SHA` -> GitHub release name `Rango vX.Y.Z-edge.YYYYMMDD-HHMM+SHA`
+
 ## Validation
 
 Run full checks:

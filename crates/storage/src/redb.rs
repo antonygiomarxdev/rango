@@ -47,8 +47,8 @@ impl RedbStorage {
         prefix
     }
 
-    fn decode_doc(mut bytes: &[u8]) -> Result<Document, RangoError> {
-        Document::from_reader(&mut bytes).map_err(|e| RangoError::Storage(e.to_string()))
+    fn decode_doc(bytes: &[u8]) -> Result<Document, RangoError> {
+        Document::from_reader(&bytes[..]).map_err(|e| RangoError::Storage(e.to_string()))
     }
 }
 

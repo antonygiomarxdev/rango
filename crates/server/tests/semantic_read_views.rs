@@ -158,6 +158,6 @@ async fn semantic_reads_are_opt_in_and_marked_derived_non_canonical() {
         "semantic_projection"
     );
     let patch = semantic_pull.mutations[0].patch.as_ref().unwrap();
-    assert_eq!(patch.get_bool("derived").unwrap(), true);
-    assert_eq!(patch.get_bool("canonical").unwrap(), false);
+    assert!(patch.get_bool("derived").unwrap());
+    assert!(!patch.get_bool("canonical").unwrap());
 }

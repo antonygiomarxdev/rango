@@ -84,7 +84,7 @@ fn test_find_many() {
         .insert_one(&coll, doc! { "name": "Charlie" })
         .unwrap();
 
-    let mut cursor = engine.find_many(&coll).unwrap();
+    let cursor = engine.find_many(&coll).unwrap();
     let mut count = 0;
     for _doc in cursor {
         count += 1;

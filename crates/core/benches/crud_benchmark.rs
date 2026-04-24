@@ -1,15 +1,25 @@
 use bson::doc;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rango_core::RangoEngine;
-use rango_oplog::NullOplog;
-use rango_storage::MemoryStorage;
+use rango_oplog::FileOplog;
+use rango_storage::RedbStorage;
 use rango_types::CollectionName;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+fn temp_workspace(prefix: &str) -> std::path::PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    std::env::temp_dir().join(format!("rango-bench-{prefix}-{pid}-{n}"))
+}
 
 fn bench_insert_one(c: &mut Criterion) {
     c.bench_function("insert_one", |b| {
-        let storage = Arc::new(MemoryStorage::new());
-        let oplog = Arc::new(NullOplog::new());
+        let workspace = temp_workspace("insert");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let storage = Arc::new(RedbStorage::open(workspace.join("data.redb")).unwrap());
+        let oplog = Arc::new(FileOplog::new(workspace.join("oplog.rgo")).unwrap());
         let engine = RangoEngine::open(storage, oplog, "bench").unwrap();
         let coll = CollectionName::new("bench");
         let mut i = 0u64;
@@ -30,8 +40,10 @@ fn bench_insert_one(c: &mut Criterion) {
 }
 
 fn bench_find_one_by_id(c: &mut Criterion) {
-    let storage = Arc::new(MemoryStorage::new());
-    let oplog = Arc::new(NullOplog::new());
+    let workspace = temp_workspace("find-id");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let storage = Arc::new(RedbStorage::open(workspace.join("data.redb")).unwrap());
+    let oplog = Arc::new(FileOplog::new(workspace.join("oplog.rgo")).unwrap());
     let engine = RangoEngine::open(storage, oplog, "bench").unwrap();
     let coll = CollectionName::new("bench");
 
@@ -45,8 +57,10 @@ fn bench_find_one_by_id(c: &mut Criterion) {
 }
 
 fn bench_find_with_filter(c: &mut Criterion) {
-    let storage = Arc::new(MemoryStorage::new());
-    let oplog = Arc::new(NullOplog::new());
+    let workspace = temp_workspace("find-filter");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let storage = Arc::new(RedbStorage::open(workspace.join("data.redb")).unwrap());
+    let oplog = Arc::new(FileOplog::new(workspace.join("oplog.rgo")).unwrap());
     let engine = RangoEngine::open(storage, oplog, "bench").unwrap();
     let coll = CollectionName::new("bench");
 
@@ -64,7 +78,7 @@ fn bench_find_with_filter(c: &mut Criterion) {
 
     c.bench_function("find_with_filter", |b| {
         b.iter(|| {
-            let mut cursor = engine
+            let cursor = engine
                 .find(
                     &coll,
                     &doc! { "index": { "$gte": 500i64 } },
@@ -80,8 +94,10 @@ fn bench_find_with_filter(c: &mut Criterion) {
 }
 
 fn bench_update_one(c: &mut Criterion) {
-    let storage = Arc::new(MemoryStorage::new());
-    let oplog = Arc::new(NullOplog::new());
+    let workspace = temp_workspace("update");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let storage = Arc::new(RedbStorage::open(workspace.join("data.redb")).unwrap());
+    let oplog = Arc::new(FileOplog::new(workspace.join("oplog.rgo")).unwrap());
     let engine = RangoEngine::open(storage, oplog, "bench").unwrap();
     let coll = CollectionName::new("bench");
 

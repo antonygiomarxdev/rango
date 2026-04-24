@@ -73,7 +73,7 @@ impl<S: StorageEngine> RangoClient<S> {
 
         for (line_num, line) in reader.lines().enumerate() {
             let line = match line {
-                Ok(l) => l.trim().to_string(),
+                Ok(l) => sanitize_json_line(line_num, &l),
                 Err(e) => {
                     errors += 1;
                     progress.on_error(line_num + 1, e.to_string());
@@ -167,6 +167,15 @@ fn parse_mongo_json(line: &str) -> Result<Document, RangoError> {
         _ => Err(RangoError::Storage(
             "Expected JSON object, got other type".to_string(),
         )),
+    }
+}
+
+fn sanitize_json_line(line_num: usize, raw: &str) -> String {
+    let trimmed = raw.trim();
+    if line_num == 0 {
+        trimmed.trim_start_matches('\u{feff}').to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -451,5 +460,21 @@ mod tests {
         assert_eq!(doc.get_i32("int").unwrap(), 42);
         assert_eq!(doc.get_i64("long").unwrap(), 9007199254740992i64);
         assert!((doc.get_f64("double").unwrap() - 3.14).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_import_json_with_utf8_bom_first_line() {
+        let client = create_test_client();
+
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "\u{feff}{{\"name\": \"Alice\"}}").unwrap();
+        writeln!(file, r#"{{"name": "Bob"}}"#).unwrap();
+        file.flush().unwrap();
+
+        let result = client
+            .import_json("people", file.path(), &NoOpProgress)
+            .unwrap();
+        assert_eq!(result.imported, 2);
+        assert_eq!(result.errors, 0);
     }
 }

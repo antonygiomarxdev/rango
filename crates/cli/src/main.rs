@@ -274,10 +274,21 @@ fn run_benchmarks(count: usize) -> Result<()> {
     println!("Rango Benchmarks ({} docs)", count);
     println!("{}", "=".repeat(50));
 
-    let storage = Arc::new(rango_storage::MemoryStorage::new());
-    let oplog = Arc::new(rango_oplog::NullOplog::new());
+    let workspace = std::env::temp_dir().join(format!(
+        "rango-cli-bench-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&workspace)?;
+    let storage = Arc::new(rango_storage::RedbStorage::open(workspace.join("data.redb"))?);
+    let oplog = Arc::new(rango_oplog::FileOplog::new(workspace.join("oplog.rgo"))?);
     let client = rango_sdk::RangoClient::open(storage.clone(), oplog, "bench-node")?;
     let coll = CollectionName::new("bench");
+    println!("  Backend: redb (persistent)");
+    println!("  Workspace: {}", workspace.display());
 
     // Insert benchmark
     println!("\nInsert Benchmark");

@@ -11,6 +11,7 @@ Thank you for your interest in contributing. Rango is a source-available project
 - [Testing Requirements](#testing-requirements)
 - [Commit Convention](#commit-convention)
 - [Architectural Decisions (ADRs)](#architectural-decisions-adrs)
+- [Roadmap and Issue Management](#roadmap-and-issue-management)
 - [Submitting a Pull Request](#submitting-a-pull-request)
 
 ---
@@ -144,6 +145,26 @@ What warrants an ADR:
 - New ID scheme
 - Security model changes
 - Replacing a major dependency
+
+---
+
+## Roadmap and Issue Management
+
+Rango tracks strategy and execution in separate layers:
+
+- Strategy and phase goals: `ROADMAP.md`
+- Process and workflow rules: `docs/operations/workflow.md`
+- Executable work: GitHub Issues + Milestones
+
+Minimum requirements for a new issue:
+
+- Assign one `phase:*` label
+- Assign one `type:*` label
+- Assign one `priority:*` label
+- Assign a milestone (`v0.x.y`)
+- Define acceptance criteria and test plan
+
+Do not add task-level checklists to `ROADMAP.md`; keep those in issues.
 
 ---
 

@@ -166,12 +166,14 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-e2e.ps1
 ## Documentation
 
 - [Docs Index](docs/README.md)
+- [Roadmap](ROADMAP.md)
 - [Vision](docs/vision.md)
 - [Architecture Overview](docs/architecture/overview.md)
 - [Memory Model](docs/architecture/memory/model.md)
 - [API Reference](docs/reference/api.md)
 - [Sync Protocol](docs/reference/sync-protocol.md)
 - [OpenClaw Integration Guide](docs/integrations/openclaw.md)
+- [Work Management Workflow](docs/operations/workflow.md)
 - [Security](docs/operations/security.md)
 - [ADRs](docs/adr/)
 

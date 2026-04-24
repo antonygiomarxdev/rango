@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security reports (private)
+    url: https://github.com/antonygiomarxdev/rango/security/advisories/new
+    about: Report security vulnerabilities privately.
+  - name: Questions and design discussion
+    url: https://github.com/antonygiomarxdev/rango/discussions
+    about: Use Discussions for open questions and early design exploration.

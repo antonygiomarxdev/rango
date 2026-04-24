@@ -2,6 +2,7 @@
 
 ## Product
 - [Vision](vision.md)
+- [Roadmap](../ROADMAP.md)
 
 ## Architecture
 - [Architecture Overview](architecture/overview.md)
@@ -17,6 +18,7 @@
 ## Operations
 - [Security](operations/security.md)
 - [Release Process](operations/release.md)
+- [Work Management Workflow](operations/workflow.md)
 
 ## Integrations
 - [OpenClaw Integration Guide](integrations/openclaw.md)

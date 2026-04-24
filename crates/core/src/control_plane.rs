@@ -197,6 +197,20 @@ impl ControlPlane {
         }
     }
 
+    pub fn validate_semantic_promotion(request: &PromotionRequest) -> GovernanceDecision {
+        if request.from == MemoryTier::Episodic && request.to == MemoryTier::Semantic {
+            GovernanceDecision {
+                decision: PolicyDecision::Allow,
+                reason: "semantic_promotion_path_valid".to_string(),
+            }
+        } else {
+            GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "semantic_promotion_requires_episodic_to_semantic".to_string(),
+            }
+        }
+    }
+
     /// Deterministic write hook order:
     /// 1) write validation, 2) trust scoring, 3) audit/anomaly signaling.
     pub fn write_path(

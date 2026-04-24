@@ -53,6 +53,67 @@ impl<S: StorageEngine> RangoEngine<S> {
         &self.config
     }
 
+    pub fn invalidate_semantic_projection(
+        &self,
+        tenant_id: &str,
+        namespace: &str,
+        _canonical_id: &str,
+        source_revision: &str,
+        _policy_version: &str,
+    ) -> Result<(), RangoError> {
+        if tenant_id.is_empty() || namespace.is_empty() || source_revision.is_empty() {
+            return Err(RangoError::Storage(
+                "tenant_id, namespace, and source_revision must be non-empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn rebuild_semantic_projection(
+        &self,
+        tenant_id: &str,
+        namespace: &str,
+        canonical_id: &str,
+        source_revision: &str,
+        tier: MemoryTier,
+        projection: Document,
+    ) -> Result<ArtifactEnvelope, RangoError> {
+        if tier != MemoryTier::Semantic {
+            return Err(RangoError::Storage(
+                "rebuild_semantic_projection requires semantic tier".to_string(),
+            ));
+        }
+        let now = bson::DateTime::now();
+        let metadata = GovernanceMetadata {
+            id: canonical_id.to_string(),
+            namespace: namespace.to_string(),
+            tenant_id: tenant_id.to_string(),
+            r#type: "semantic_projection".to_string(),
+            rev: source_revision.to_string(),
+            created_at: now,
+            updated_at: now,
+            source: self.node_id.clone(),
+            actor: "semantic_rebuild".to_string(),
+            lineage: format!("canonical:{canonical_id}"),
+            schema_version: 1,
+            trust_score: 1.0,
+            verified: Some(true),
+            expires_at: None,
+        };
+        let mut bytes = Vec::new();
+        projection
+            .to_writer(&mut bytes)
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
+        ArtifactEnvelope::new_semantic_projection(
+            metadata,
+            format!("semantic-rebuild:{tenant_id}:{namespace}:{canonical_id}:{source_revision}"),
+            source_revision.to_string(),
+            bytes,
+            None,
+        )
+        .map_err(RangoError::Storage)
+    }
+
     fn validate_document_size(&self, doc: &Document) -> Result<(), RangoError> {
         let mut bytes = Vec::new();
         doc.to_writer(&mut bytes)

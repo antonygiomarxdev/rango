@@ -125,6 +125,28 @@ pub struct ArtifactEnvelope {
 }
 
 impl ArtifactEnvelope {
+    pub fn new_semantic_projection(
+        metadata: GovernanceMetadata,
+        write_id: String,
+        source_revision: String,
+        content: Vec<u8>,
+        parent_artifact_revision: Option<String>,
+    ) -> Result<Self, String> {
+        let envelope = Self {
+            metadata,
+            write_id,
+            artifact_type: "semantic_projection".to_string(),
+            source_revision,
+            content,
+            parent_artifact_revision,
+        };
+        envelope.validate()?;
+        if envelope.metadata.r#type != "semantic_projection" {
+            return Err("metadata.type must be semantic_projection".to_string());
+        }
+        Ok(envelope)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         self.metadata.validate()?;
         if self.write_id.is_empty() {

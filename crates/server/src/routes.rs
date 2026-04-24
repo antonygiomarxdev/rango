@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::{
-    Extension, extract::Json,
+    Extension,
+    extract::Json,
     http::{HeaderValue, StatusCode},
 };
 use bson::Document;
@@ -108,7 +109,12 @@ impl ServerState {
         }
     }
 
-    fn register_decision_outcome(&self, tenant_id: &str, namespace: &str, decision: &GovernanceDecision) {
+    fn register_decision_outcome(
+        &self,
+        tenant_id: &str,
+        namespace: &str,
+        decision: &GovernanceDecision,
+    ) {
         let key = (tenant_id.to_string(), namespace.to_string());
         let mut map = self.containment.lock().unwrap();
         let state = map.entry(key).or_default();
@@ -127,7 +133,10 @@ impl ServerState {
         let rev = rango_types::Revision::now("governance-runtime");
         let mut patch = Document::new();
         patch.insert("stage", stage.to_string());
-        patch.insert("decision", ControlPlane::decision_label(decision).to_string());
+        patch.insert(
+            "decision",
+            ControlPlane::decision_label(decision).to_string(),
+        );
         patch.insert("reason", decision.reason.clone());
         patch.insert("tenant_id", tenant_id.to_string());
         patch.insert("namespace", namespace.to_string());
@@ -273,13 +282,8 @@ pub async fn handle_push(
             decision: PolicyDecision::Reject,
             reason: "tenant_mismatch".to_string(),
         };
-        let _ = state.persist_audit_evidence(
-            "write",
-            &req.tenant_id,
-            &req.namespace,
-            None,
-            &decision,
-        );
+        let _ =
+            state.persist_audit_evidence("write", &req.tenant_id, &req.namespace, None, &decision);
         state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
         let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
         return Ok(Json(PushResponse {
@@ -450,13 +454,8 @@ pub async fn handle_pull(
     let read_decision = state
         .containment_gate(&req.tenant_id, &req.namespace)
         .unwrap_or(read_decision);
-    let _ = state.persist_audit_evidence(
-        "read",
-        &req.tenant_id,
-        &req.namespace,
-        None,
-        &read_decision,
-    );
+    let _ =
+        state.persist_audit_evidence("read", &req.tenant_id, &req.namespace, None, &read_decision);
     state.register_decision_outcome(&req.tenant_id, &req.namespace, &read_decision);
     if ControlPlane::is_reject(&read_decision) {
         return Ok(Json(PullResponse {
@@ -527,7 +526,10 @@ pub async fn handle_retrieval_read(
     let response = match state.retrieval_runtime.retrieve(&req) {
         Ok(candidates) => {
             let ranked = rank_candidates_v1(candidates);
-            let docs: Vec<Document> = ranked.iter().map(|candidate| candidate.payload.clone()).collect();
+            let docs: Vec<Document> = ranked
+                .iter()
+                .map(|candidate| candidate.payload.clone())
+                .collect();
             let (decision, filtered) = state
                 .control_plane
                 .read_path(&request, docs)
@@ -614,7 +616,9 @@ pub async fn handle_promote(
     }
 
     if req.tenant_id != principal.tenant_id {
-        state.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+        state
+            .cross_tenant_rejections
+            .fetch_add(1, Ordering::Relaxed);
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
             new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
@@ -638,9 +642,12 @@ pub async fn handle_promote(
         }));
     }
 
-    if req.mutation.metadata.tenant_id != req.tenant_id || req.mutation.metadata.namespace != req.namespace
+    if req.mutation.metadata.tenant_id != req.tenant_id
+        || req.mutation.metadata.namespace != req.namespace
     {
-        state.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+        state
+            .cross_tenant_rejections
+            .fetch_add(1, Ordering::Relaxed);
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
             new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),

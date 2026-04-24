@@ -283,7 +283,9 @@ fn run_benchmarks(count: usize) -> Result<()> {
             .unwrap_or(0)
     ));
     std::fs::create_dir_all(&workspace)?;
-    let storage = Arc::new(rango_storage::RedbStorage::open(workspace.join("data.redb"))?);
+    let storage = Arc::new(rango_storage::RedbStorage::open(
+        workspace.join("data.redb"),
+    )?);
     let oplog = Arc::new(rango_oplog::FileOplog::new(workspace.join("oplog.rgo"))?);
     let client = rango_sdk::RangoClient::open(storage.clone(), oplog, "bench-node")?;
     let coll = CollectionName::new("bench");

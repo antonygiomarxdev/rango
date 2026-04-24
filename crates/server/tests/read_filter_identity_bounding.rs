@@ -1,17 +1,17 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use axum::Extension;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::Extension;
-use bson::{doc, Document};
+use bson::{Document, doc};
 use rango_core::{
     BoundedContextFilterHook, ControlPlane, NoopAnomalySignalHook, NoopAuditSink,
     NoopPromotionGateHook, NoopRetrievalGateHook, NoopTrustScoringHook, NoopWriteValidationHook,
     ReadRequest,
 };
 use rango_oplog::Oplog;
-use rango_server::routes::{handle_pull, ServerState};
+use rango_server::routes::{ServerState, handle_pull};
 use rango_sync::protocol::PullRequest;
 use rango_types::{
     Checkpoint, DocumentId, Mutation, MutationMetadata, MutationOp, OplogEntry, OplogOrigin,
@@ -65,7 +65,10 @@ impl BoundedContextFilterHook for KeepLastCandidateFilter {
 fn make_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("X-Rango-Protocol-Version", HeaderValue::from_static("1"));
-    headers.insert("Authorization", HeaderValue::from_static("Bearer test-token"));
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_static("Bearer test-token"),
+    );
     headers
 }
 

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use bson::Document;
+use serde::{Deserialize, Serialize};
 
 /// Canonical substrate memory tiers governed by the control plane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

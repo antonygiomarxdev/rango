@@ -81,7 +81,10 @@ fn rollback_restores_valid_snapshot_and_replay_is_deterministic() {
         .rollback_to_snapshot(&collection, &snapshot, rollback, replay)
         .unwrap();
 
-    assert_eq!(applied, 2, "rollback replay must apply the exact replay window");
+    assert_eq!(
+        applied, 2,
+        "rollback replay must apply the exact replay window"
+    );
     assert_eq!(audit.rollback.snapshot_id, snapshot.snapshot_id);
     assert_eq!(audit.rollback.target_seq, 5);
     let restored = engine.find_one(&collection, &id).unwrap().unwrap().data;

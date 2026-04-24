@@ -62,8 +62,16 @@ proptest! {
 #[test]
 fn pull_identity_candidates_must_be_unique_and_tenant_scoped() {
     let mut identities = HashSet::new();
-    identities.insert(("tenant-a".to_string(), "ns-a".to_string(), "write-1".to_string()));
-    identities.insert(("tenant-a".to_string(), "ns-a".to_string(), "write-2".to_string()));
+    identities.insert((
+        "tenant-a".to_string(),
+        "ns-a".to_string(),
+        "write-1".to_string(),
+    ));
+    identities.insert((
+        "tenant-a".to_string(),
+        "ns-a".to_string(),
+        "write-2".to_string(),
+    ));
 
     // Tenant and namespace are part of identity boundary; cross-tenant same write_id is allowed.
     let cross_tenant_inserted = identities.insert((

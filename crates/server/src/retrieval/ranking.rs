@@ -1,5 +1,5 @@
 use rango_types::{
-    deterministic_score_v1, RankingExplainability, RetrievalCandidate, RANKING_FORMULA_V1,
+    RANKING_FORMULA_V1, RankingExplainability, RetrievalCandidate, deterministic_score_v1,
 };
 
 pub fn rank_candidates_v1(mut candidates: Vec<RetrievalCandidate>) -> Vec<RetrievalCandidate> {

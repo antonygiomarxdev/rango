@@ -4,7 +4,7 @@ pub mod ranking;
 use std::sync::Arc;
 
 use adapters::{AdapterError, AdapterErrorKind, GraphRetrievalAdapter, VectorRetrievalAdapter};
-use rango_types::{RetrievalCapabilityRequest, RetrievalCandidate};
+use rango_types::{RetrievalCandidate, RetrievalCapabilityRequest};
 
 #[derive(Clone)]
 pub struct RetrievalRuntime {
@@ -38,7 +38,10 @@ impl RetrievalRuntime {
         match vector {
             Ok(items) => candidates.extend(items),
             Err(err) => {
-                if !matches!(err.kind, AdapterErrorKind::Unavailable | AdapterErrorKind::Timeout) {
+                if !matches!(
+                    err.kind,
+                    AdapterErrorKind::Unavailable | AdapterErrorKind::Timeout
+                ) {
                     return Err(err);
                 }
             }
@@ -47,7 +50,10 @@ impl RetrievalRuntime {
         match graph {
             Ok(items) => candidates.extend(items),
             Err(err) => {
-                if !matches!(err.kind, AdapterErrorKind::Unavailable | AdapterErrorKind::Timeout) {
+                if !matches!(
+                    err.kind,
+                    AdapterErrorKind::Unavailable | AdapterErrorKind::Timeout
+                ) {
                     return Err(err);
                 }
             }

@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use axum::Extension;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::Extension;
 use bson::doc;
 use rango_oplog::Oplog;
-use rango_server::routes::{handle_promote, handle_pull, handle_push, ServerState};
+use rango_server::routes::{ServerState, handle_promote, handle_pull, handle_push};
 use rango_sync::protocol::{PromoteRequest, PullRequest, PushRequest};
 use rango_types::{
     Checkpoint, DocumentId, MemoryTier, Mutation, MutationMetadata, MutationOp, OplogEntry,
@@ -172,26 +172,27 @@ async fn governance_decisions_are_persisted_as_durable_audit_evidence() {
         "missing durable reject governance audit entry",
     );
     assert!(
-        audit_entries
-            .iter()
-            .any(|entry| entry.mutation.patch.as_ref().is_some_and(|doc| {
-                doc.get_str("stage").ok() == Some("read")
-            })),
+        audit_entries.iter().any(|entry| entry
+            .mutation
+            .patch
+            .as_ref()
+            .is_some_and(|doc| { doc.get_str("stage").ok() == Some("read") })),
         "missing durable read governance audit entry",
     );
     assert!(
-        audit_entries
-            .iter()
-            .any(|entry| entry.mutation.patch.as_ref().is_some_and(|doc| {
-                doc.get_str("stage").ok() == Some("promotion")
-            })),
+        audit_entries.iter().any(|entry| entry
+            .mutation
+            .patch
+            .as_ref()
+            .is_some_and(|doc| { doc.get_str("stage").ok() == Some("promotion") })),
         "missing durable promotion governance audit entry",
     );
 
     assert!(
-        entries
-            .iter()
-            .all(|entry| matches!(entry.origin, OplogOrigin::Remote | OplogOrigin::Replay | OplogOrigin::Local)),
+        entries.iter().all(|entry| matches!(
+            entry.origin,
+            OplogOrigin::Remote | OplogOrigin::Replay | OplogOrigin::Local
+        )),
         "unexpected oplog origin variant encountered",
     );
 

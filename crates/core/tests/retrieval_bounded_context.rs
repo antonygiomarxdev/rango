@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use bson::{doc, Document};
+use bson::{Document, doc};
 use rango_core::{
-    BoundedContextFilterHook, ControlPlane, NoopAnomalySignalHook, NoopAuditSink, NoopPromotionGateHook,
-    NoopRetrievalGateHook, NoopTrustScoringHook, NoopWriteValidationHook, ReadRequest,
+    BoundedContextFilterHook, ControlPlane, NoopAnomalySignalHook, NoopAuditSink,
+    NoopPromotionGateHook, NoopRetrievalGateHook, NoopTrustScoringHook, NoopWriteValidationHook,
+    ReadRequest,
 };
 use rango_types::MemoryTier;
 

@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use axum::Extension;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::Extension;
 use bson::doc;
 use rango_core::{
     ControlPlane, NoopAnomalySignalHook, NoopAuditSink, NoopBoundedContextFilterHook,
@@ -11,7 +11,7 @@ use rango_core::{
     PromotionRequest as CorePromotionRequest, WritePayload,
 };
 use rango_oplog::Oplog;
-use rango_server::routes::{handle_promote, ServerState};
+use rango_server::routes::{ServerState, handle_promote};
 use rango_sync::protocol::PromoteRequest;
 use rango_types::{
     Checkpoint, DocumentId, MemoryTier, Mutation, MutationMetadata, MutationOp, OplogEntry,
@@ -97,7 +97,10 @@ impl PromotionGateHook for RecordingPromotionHook {
 fn make_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("X-Rango-Protocol-Version", HeaderValue::from_static("1"));
-    headers.insert("Authorization", HeaderValue::from_static("Bearer test-token"));
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_static("Bearer test-token"),
+    );
     headers
 }
 
@@ -216,14 +219,10 @@ async fn promote_runtime_rejects_invalid_metadata_before_promotion_path() {
     let mut invalid = make_promote_request("w-invalid", 0.9);
     invalid.mutation.metadata.source = String::new();
 
-    let response = handle_promote(
-        Extension(Arc::new(state)),
-        make_headers(),
-        Json(invalid),
-    )
-    .await
-    .unwrap()
-    .0;
+    let response = handle_promote(Extension(Arc::new(state)), make_headers(), Json(invalid))
+        .await
+        .unwrap()
+        .0;
 
     assert_eq!(response.accepted_seqs.len(), 0);
     assert_eq!(response.rejected_count, 1);

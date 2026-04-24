@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bson::Document;
 use rango_types::{CollectionName, DocumentId, RangoError};
-use redb::{Database, ReadableDatabase, ReadableTable, ReadOnlyTable, Table, TableDefinition};
+use redb::{Database, ReadOnlyTable, ReadableDatabase, ReadableTable, Table, TableDefinition};
 use tracing::instrument;
 
 use crate::{RangeIter, ScanIter, StorageEngine};
@@ -28,7 +28,8 @@ impl RedbStorage {
                 .map_err(|e| RangoError::Storage(e.to_string()))?;
             tx.open_table(DOCS_TABLE)
                 .map_err(|e| RangoError::Storage(e.to_string()))?;
-            tx.commit().map_err(|e| RangoError::Storage(e.to_string()))?;
+            tx.commit()
+                .map_err(|e| RangoError::Storage(e.to_string()))?;
         }
         Ok(Self { db: Arc::new(db) })
     }
@@ -99,7 +100,8 @@ impl StorageEngine for RedbStorage {
                 .insert(key.as_slice(), bytes.as_slice())
                 .map_err(|e| RangoError::Storage(e.to_string()))?;
         }
-        tx.commit().map_err(|e| RangoError::Storage(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         Ok(())
     }
 
@@ -119,7 +121,8 @@ impl StorageEngine for RedbStorage {
                 .map_err(|e| RangoError::Storage(e.to_string()))?
                 .is_some()
         };
-        tx.commit().map_err(|e| RangoError::Storage(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| RangoError::Storage(e.to_string()))?;
         Ok(existed)
     }
 
@@ -247,9 +250,11 @@ mod tests {
 
         let user_docs: Vec<_> = storage.scan(&users).expect("scan users").collect();
         assert_eq!(user_docs.len(), 3);
-        assert!(user_docs
-            .into_iter()
-            .all(|r| r.expect("doc").get_str("kind").ok() == Some("user")));
+        assert!(
+            user_docs
+                .into_iter()
+                .all(|r| r.expect("doc").get_str("kind").ok() == Some("user"))
+        );
     }
 
     #[test]

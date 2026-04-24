@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use axum::Extension;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::Extension;
 use bson::doc;
 use rango_oplog::Oplog;
-use rango_server::routes::{handle_pull, handle_push, ServerState};
+use rango_server::routes::{ServerState, handle_pull, handle_push};
 use rango_sync::protocol::{PullRequest, PushRequest};
 use rango_types::{
     Checkpoint, DocumentId, Mutation, MutationMetadata, MutationOp, OplogEntry, RangoError,
@@ -51,7 +51,10 @@ impl Oplog for InMemoryOplog {
 fn make_headers(read_tier: Option<&str>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("X-Rango-Protocol-Version", HeaderValue::from_static("1"));
-    headers.insert("Authorization", HeaderValue::from_static("Bearer test-token"));
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_static("Bearer test-token"),
+    );
     if let Some(tier) = read_tier {
         headers.insert(
             "X-Rango-Read-Tier",
@@ -150,7 +153,10 @@ async fn semantic_reads_are_opt_in_and_marked_derived_non_canonical() {
     .0;
 
     assert_eq!(semantic_pull.mutations.len(), 1);
-    assert_eq!(semantic_pull.mutations[0].metadata.r#type, "semantic_projection");
+    assert_eq!(
+        semantic_pull.mutations[0].metadata.r#type,
+        "semantic_projection"
+    );
     let patch = semantic_pull.mutations[0].patch.as_ref().unwrap();
     assert_eq!(patch.get_bool("derived").unwrap(), true);
     assert_eq!(patch.get_bool("canonical").unwrap(), false);

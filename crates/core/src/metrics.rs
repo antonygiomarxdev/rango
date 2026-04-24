@@ -72,9 +72,7 @@ impl Metrics {
             local_write_latency_us_count: self.local_write_latency_us_count.load(Ordering::Relaxed),
             replay_duration_us_total: self.replay_duration_us_total.load(Ordering::Relaxed),
             replay_duration_us_count: self.replay_duration_us_count.load(Ordering::Relaxed),
-            replay_drift_detection_count: self
-                .replay_drift_detection_count
-                .load(Ordering::Relaxed),
+            replay_drift_detection_count: self.replay_drift_detection_count.load(Ordering::Relaxed),
         }
     }
 }

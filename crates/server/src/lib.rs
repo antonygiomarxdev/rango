@@ -1,5 +1,5 @@
-pub mod routes;
 pub mod retrieval;
+pub mod routes;
 
 use axum::{Router, extract::DefaultBodyLimit, middleware};
 use std::sync::{Arc, Mutex};
@@ -68,7 +68,10 @@ pub fn app(state: Arc<ServerState>) -> Router {
         .route("/push", axum::routing::post(routes::handle_push))
         .route("/pull", axum::routing::post(routes::handle_pull))
         .route("/promote", axum::routing::post(routes::handle_promote))
-        .route("/retrieve", axum::routing::post(routes::handle_retrieval_read))
+        .route(
+            "/retrieve",
+            axum::routing::post(routes::handle_retrieval_read),
+        )
         .layer(DefaultBodyLimit::max(MAX_REQUEST_SIZE))
         .layer(middleware::from_fn(rate_limit_middleware))
         .layer(axum::Extension(state))

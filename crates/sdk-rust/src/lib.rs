@@ -102,7 +102,11 @@ pub struct TieredMemoryWriteRequest {
 }
 
 impl TieredMemoryWriteRequest {
-    pub fn new(tenant_id: impl Into<String>, namespace: impl Into<String>, tier: MemoryTier) -> Self {
+    pub fn new(
+        tenant_id: impl Into<String>,
+        namespace: impl Into<String>,
+        tier: MemoryTier,
+    ) -> Self {
         Self {
             tenant_id: tenant_id.into(),
             namespace: namespace.into(),

@@ -9,8 +9,8 @@ pub mod index;
 pub mod memory;
 pub mod mutation;
 pub mod oplog;
-pub mod revision;
 pub mod retrieval;
+pub mod revision;
 pub mod sync_queue;
 
 pub use checkpoint::*;
@@ -24,6 +24,6 @@ pub use index::*;
 pub use memory::*;
 pub use mutation::*;
 pub use oplog::*;
-pub use revision::*;
 pub use retrieval::*;
+pub use revision::*;
 pub use sync_queue::*;

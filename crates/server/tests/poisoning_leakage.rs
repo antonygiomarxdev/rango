@@ -120,7 +120,10 @@ async fn cross_tenant_injection_and_poisoning_attempts_do_not_leak_across_sync_p
 
     // RED expectation for Wave 0: poisoning responses must include deterministic containment/audit labels.
     assert!(
-        poisoning.audit.iter().any(|d| d.reason.contains("poisoning")),
+        poisoning
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("poisoning")),
         "expected poisoning-specific reject reason",
     );
     assert!(
@@ -142,4 +145,3 @@ fn temp_oplog_path() -> String {
         .to_string_lossy()
         .to_string()
 }
-

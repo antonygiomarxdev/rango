@@ -1,6 +1,6 @@
 use rango_types::{
-    deterministic_score_v1, RankingExplainability, RankingSignals, RetrievalCandidate, RetrievalSource,
-    RANKING_FORMULA_V1,
+    RANKING_FORMULA_V1, RankingExplainability, RankingSignals, RetrievalCandidate, RetrievalSource,
+    deterministic_score_v1,
 };
 
 #[test]

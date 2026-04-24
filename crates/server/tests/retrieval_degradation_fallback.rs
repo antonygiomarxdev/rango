@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use axum::Extension;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::Extension;
 use rango_oplog::NullOplog;
-use rango_server::routes::{handle_retrieval_read, ServerState};
+use rango_server::routes::{ServerState, handle_retrieval_read};
 use rango_types::{RetrievalCapabilityRequest, RetrievalStatus};
 
 fn headers() -> HeaderMap {

@@ -2,8 +2,8 @@ use rango_sdk::{RetrievalCapabilityRequest, RetrievalStatus};
 
 #[test]
 fn retrieval_api_contract_is_typed_and_external_capability_oriented() {
-    let request = RetrievalCapabilityRequest::new("tenant-a", "ns-a", "latest outage")
-        .with_limit(8);
+    let request =
+        RetrievalCapabilityRequest::new("tenant-a", "ns-a", "latest outage").with_limit(8);
 
     assert_eq!(request.tenant_id, "tenant-a");
     assert_eq!(request.namespace, "ns-a");

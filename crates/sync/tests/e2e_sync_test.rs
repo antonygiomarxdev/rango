@@ -85,7 +85,13 @@ async fn test_e2e_push_and_pull() {
     // Idempotency: push same mutations again
     let mutations = vec![dummy_mutation(1), dummy_mutation(2)];
     let push_resp2 = client
-        .push_scoped("client-1", "tenant-a", "test", mutations, push_resp.new_checkpoint)
+        .push_scoped(
+            "client-1",
+            "tenant-a",
+            "test",
+            mutations,
+            push_resp.new_checkpoint,
+        )
         .await
         .unwrap();
     // Server should return same seqs (idempotent)

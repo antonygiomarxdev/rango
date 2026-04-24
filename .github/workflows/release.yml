@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
@@ -134,21 +136,48 @@ jobs:
         with:
           path: artifacts
 
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+      - name: Compute release metadata
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "release_name=Rango v${VERSION}" >> $GITHUB_OUTPUT
+            echo "release_tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "notes_mode=versioned" >> $GITHUB_OUTPUT
+          else
+            SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+            TS="$(date -u +%Y%m%d-%H%M)"
+            echo "release_name=Rango Edge ${TS} (${SHORT_SHA})" >> $GITHUB_OUTPUT
+            echo "release_tag=edge-${TS}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "notes_mode=edge" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract changelog for this version
         id: changelog
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          if grep -q "^## \[$VERSION\]" CHANGELOG.md; then
-            awk '/^## \['"$VERSION"'\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
+          if [[ "${{ steps.meta.outputs.notes_mode }}" == "versioned" ]]; then
+            VERSION="${{ steps.meta.outputs.version }}"
+            if grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+              awk '/^## \['"$VERSION"'\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
+            elif grep -q "^## \[Unreleased\]" CHANGELOG.md; then
+              awk '/^## \[Unreleased\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
+            else
+              cat > release_notes.md <<EOF
+          Release v$VERSION
+          
+          Binary artifacts:
+          - rango (CLI)
+          - rango-server (sync hub)
+          EOF
+            fi
           elif grep -q "^## \[Unreleased\]" CHANGELOG.md; then
             awk '/^## \[Unreleased\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
           else
             cat > release_notes.md <<EOF
-          Release v$VERSION
+          Edge release from main
           
           Binary artifacts:
           - rango (CLI)
@@ -160,8 +189,10 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Rango v${{ steps.version.outputs.VERSION }}"
+          name: "${{ steps.meta.outputs.release_name }}"
+          tag_name: "${{ steps.meta.outputs.release_tag }}"
+          target_commitish: "${{ github.sha }}"
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}
           files: artifacts/**/*

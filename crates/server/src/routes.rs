@@ -3,7 +3,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::{Extension, extract::Json, http::StatusCode};
+use axum::{
+    Extension, extract::Json,
+    http::{HeaderValue, StatusCode},
+};
 use bson::Document;
 use rango_core::{
     ControlPlane, PromotionRequest as CorePromotionRequest, ReadRequest, WriteContext, WritePayload,
@@ -415,12 +418,14 @@ pub async fn handle_pull(
         .read_since(req.since_checkpoint.0 + 1, 1000)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let read_tier = parse_read_tier(headers.get("X-Rango-Read-Tier"));
     let scoped_entries: Vec<OplogEntry> = entries
         .into_iter()
         .filter(|e| {
             e.mutation.metadata.tenant_id == req.tenant_id
                 && e.mutation.metadata.namespace == req.namespace
                 && e.mutation.metadata.r#type != "governance_audit"
+                && mutation_visible_for_tier(&e.mutation, read_tier)
         })
         .collect();
 
@@ -431,7 +436,7 @@ pub async fn handle_pull(
     let read_request = ReadRequest {
         tenant_id: req.tenant_id.clone(),
         namespace: req.namespace.clone(),
-        tier: MemoryTier::State,
+        tier: read_tier,
         limit: 1000,
     };
     let (read_decision, filtered_candidates) = state
@@ -475,7 +480,8 @@ pub async fn handle_pull(
             continue;
         };
         if *remaining > 0 {
-            mutations.push(entry.mutation);
+            let mutation = annotate_mutation_for_read_tier(entry.mutation, read_tier);
+            mutations.push(mutation);
             *remaining -= 1;
         }
     }
@@ -564,6 +570,24 @@ pub async fn handle_promote(
         to: req.to_tier,
         candidate_id: req.candidate_id.clone(),
     };
+    let semantic_path_decision = ControlPlane::validate_semantic_promotion(&promotion_request);
+    if ControlPlane::is_reject(&semantic_path_decision) {
+        let _ = state.persist_audit_evidence(
+            "promotion",
+            &req.tenant_id,
+            &req.namespace,
+            Some(&req.mutation.write_id),
+            &semantic_path_decision,
+        );
+        state.register_decision_outcome(&req.tenant_id, &req.namespace, &semantic_path_decision);
+        return Ok(Json(PromoteResponse {
+            accepted_seqs: Vec::new(),
+            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            rejected_count: 1,
+            audit: vec![semantic_path_decision],
+        }));
+    }
+
     let payload = WritePayload::StateWithTrust {
         document: req.mutation.patch.clone().unwrap_or_else(Document::new),
         trust_score: req.mutation.metadata.trust_score,
@@ -657,4 +681,28 @@ fn normalize_write_decision(mut decision: GovernanceDecision) -> GovernanceDecis
         decision.reason = format!("poisoning_low_trust:{}", decision.reason);
     }
     decision
+}
+
+fn parse_read_tier(header: Option<&HeaderValue>) -> MemoryTier {
+    match header.and_then(|v| v.to_str().ok()) {
+        Some("semantic") => MemoryTier::Semantic,
+        _ => MemoryTier::State,
+    }
+}
+
+fn mutation_visible_for_tier(mutation: &Mutation, tier: MemoryTier) -> bool {
+    match tier {
+        MemoryTier::Semantic => mutation.metadata.r#type == "semantic_projection",
+        _ => mutation.metadata.r#type != "semantic_projection",
+    }
+}
+
+fn annotate_mutation_for_read_tier(mut mutation: Mutation, tier: MemoryTier) -> Mutation {
+    if tier == MemoryTier::Semantic {
+        if let Some(patch) = mutation.patch.as_mut() {
+            patch.insert("derived", true);
+            patch.insert("canonical", false);
+        }
+    }
+    mutation
 }

@@ -674,4 +674,3 @@ async fn run_sync(
 
     Ok(())
 }
-

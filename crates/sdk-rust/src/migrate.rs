@@ -428,7 +428,7 @@ mod tests {
 
         // Verify output is valid JSON lines
         let reader = BufReader::new(File::open(output.path()).unwrap());
-        let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+        let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
         assert_eq!(lines.len(), 2);
 
         // Each line should be valid JSON
@@ -459,7 +459,8 @@ mod tests {
         let doc = &docs[0].data;
         assert_eq!(doc.get_i32("int").unwrap(), 42);
         assert_eq!(doc.get_i64("long").unwrap(), 9007199254740992i64);
-        assert!((doc.get_f64("double").unwrap() - 3.14).abs() < 0.001);
+        let expected_double = 314_f64 / 100.0;
+        assert!((doc.get_f64("double").unwrap() - expected_double).abs() < 0.001);
     }
 
     #[test]

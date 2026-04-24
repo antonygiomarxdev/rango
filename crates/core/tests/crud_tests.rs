@@ -86,7 +86,7 @@ fn test_find_many() {
 
     let mut cursor = engine.find_many(&coll).unwrap();
     let mut count = 0;
-    while let Some(_doc) = cursor.next() {
+    for _doc in cursor {
         count += 1;
     }
 

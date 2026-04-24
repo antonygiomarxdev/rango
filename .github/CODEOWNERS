@@ -1,0 +1,14 @@
+# Default owner for all files
+* @antonygiomarxdev
+
+# Critical governance and release surfaces
+/.github/workflows/ @antonygiomarxdev
+/.github/CODEOWNERS @antonygiomarxdev
+/ROADMAP.md @antonygiomarxdev
+/docs/adr/ @antonygiomarxdev
+
+# Core engine surfaces
+/crates/core/ @antonygiomarxdev
+/crates/storage/ @antonygiomarxdev
+/crates/sync/ @antonygiomarxdev
+/crates/server/ @antonygiomarxdev

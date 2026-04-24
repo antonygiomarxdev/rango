@@ -40,6 +40,21 @@ Every issue must include:
   - tests executed
 - No merge if CI is failing.
 
+## Repository Protection Baseline
+
+`main` must stay protected with:
+
+- pull request required (no direct push)
+- at least 1 approving review
+- stale review dismissal on new commits
+- resolved conversations required
+- required CI checks (Format, Clippy, Tests, Security Audit, Deny, Docs)
+- linear history required
+- force-push disabled
+- branch deletion disabled
+
+CODEOWNERS is defined in `.github/CODEOWNERS` to formalize ownership on critical surfaces.
+
 ## Label Taxonomy
 
 - Phase:

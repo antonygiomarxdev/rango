@@ -1,162 +1,105 @@
-﻿# Rango API Reference
+# Rango API Reference
 
 ## SDK (`rango-sdk`)
 
-### `RangoClient`
-
-The main entry point for applications.
+### Open a client with durable local storage
 
 ```rust
 use std::sync::Arc;
-use rango_storage::MemoryStorage;
-use rango_oplog::NullOplog;
-use rango_sdk::RangoClient;
 
-let storage = Arc::new(MemoryStorage::new());
-let oplog = Arc::new(NullOplog::new());
-let client = RangoClient::open(storage, oplog, "my-node")?;
+use rango_oplog::FileOplog;
+use rango_sdk::RangoClient;
+use rango_storage::RedbStorage;
+
+let root = std::path::PathBuf::from("./memory");
+std::fs::create_dir_all(&root)?;
+
+let storage = Arc::new(RedbStorage::open(root.join("data.redb"))?);
+let oplog = Arc::new(FileOplog::new(root.join("oplog.rgo"))?);
+let client = RangoClient::open(storage, oplog, "node-1")?;
 ```
 
-### `CollectionClient`
-
-Operations on a single collection.
+### Collection operations
 
 ```rust
+use bson::doc;
+
 let users = client.collection("users");
 
-// Insert
 let id = users.insert_one(doc! { "name": "Alice", "age": 30 })?;
-
-// Find by ID
-let doc = users.find_one(&id)?;
-
-// Find many
+let one = users.find_one(&id)?;
 let cursor = users.find_many()?;
 
-// Update
 users.update_one(&id, doc! { "$set": { "age": 31 } })?;
-
-// Delete (tombstone)
-users.delete_one(&id)?;
+users.delete_one(&id)?; // tombstone delete
 ```
 
-### Advanced Queries
+### Query engine access
 
 ```rust
-use rango_sdk::RangoClient;
+use bson::doc;
+use rango_types::CollectionName;
 
-// Find with filter
 let cursor = client.engine.find(
     &CollectionName::new("users"),
     &doc! { "age": { "$gte": 18 } },
-    None, None, None, None
-)?;
-
-// Find with projection (include only name)
-let cursor = client.engine.find(
-    &CollectionName::new("users"),
-    &doc! {},
-    Some(&doc! { "name": 1 }),
-    None, None, None
-)?;
-
-// Find with sort and limit
-let cursor = client.engine.find(
-    &CollectionName::new("users"),
-    &doc! {},
     None,
-    Some(("age", false)), // descending
     None,
-    Some(10)
+    None,
+    Some(100),
 )?;
 ```
 
-### Migration
+### Import/export JSON Lines
 
 ```rust
-// Import from JSON Lines
-let result = client.import_json("users", "users.json", &ConsoleProgress)?;
-println!("Imported {} documents", result.imported);
+use rango_sdk::migrate::ConsoleProgress;
 
-// Export to JSON Lines
-let result = client.export_json("users", "users-export.json")?;
-println!("Exported {} documents", result.exported);
-```
-
-### Sync
-
-```rust
-use rango_sync::client::SyncClient;
-use rango_sync::scheduler::SyncScheduler;
-
-let sync_client = SyncClient::new("http://server:8080", "my-token");
-let scheduler = SyncScheduler::default();
-
-let result = scheduler.run_once(
-    "my-node",
-    &queue,
-    &oplog,
-    &checkpoint_store,
-    &sync_client
-).await?;
-
-println!("Pushed: {}, Pulled: {}", result.pushed, result.pulled);
+let import_result = client.import_json("users", "users.jsonl", &ConsoleProgress)?;
+let export_result = client.export_json("users", "users-export.jsonl")?;
 ```
 
 ### Metrics
 
 ```rust
 let metrics = client.engine.metrics().snapshot();
-println!("Inserts: {}", metrics.inserts);
-println!("Finds: {}", metrics.finds);
-println!("Updates: {}", metrics.updates);
-println!("Deletes: {}", metrics.deletes);
-println!("Sync pushes: {}", metrics.sync_pushes);
-println!("Sync pulls: {}", metrics.sync_pulls);
+println!("inserts={}", metrics.inserts);
+println!("finds={}", metrics.finds);
+println!("updates={}", metrics.updates);
+println!("deletes={}", metrics.deletes);
 ```
 
-## CLI
+## CLI (`rango`)
 
 ```bash
-# Initialize local memory workspace
-rango init ./memory-home
-
-# Import documents
-rango import --collection users users.json
-
-# Export documents
-rango export --collection users --output users.json
-
-# Run benchmarks
-rango bench --count 10000
-
-# Diagnostics
-rango doctor ./memory-home
-
-# Sync with remote server
-rango sync ./memory-home --server http://localhost:8080 --token my-secret-token
+rango init ./memory
+rango inspect ./memory
+rango import --path ./memory --collection events ./events.jsonl
+rango export --path ./memory --collection events --output ./events-export.jsonl
+rango doctor ./memory
+rango sync ./memory --server http://localhost:8080 --token dev-token --node-id node-a
 ```
 
-## BSON Types
+## Server (`rango-server`)
 
-Rango uses BSON natively. When importing from Extended JSON/BSON representations:
+```bash
+rango-server --bind 0.0.0.0 --port 8080 --token dev-token --oplog-path ./server-oplog.rgo
+```
 
-| Extended JSON | BSON Type |
-|---------------|-----------|
-| `{"$oid": "..."}` | ObjectId |
-| `{"$date": "..."}` | DateTime |
-| `{"$numberInt": "..."}` | Int32 |
-| `{"$numberLong": "..."}` | Int64 |
-| `{"$numberDouble": "..."}` | Double |
+Environment overrides are also supported:
 
-## Reserved Fields
+- `RANGO_BIND`
+- `RANGO_PORT`
+- `RANGO_TOKEN`
+- `RANGO_OPLOG_PATH`
 
-The following fields are managed by Rango and should not be modified directly:
+## Reserved document fields
 
-- `_id` â€” Document identifier (UUID v7 or preserved ObjectId)
-- `_rev` â€” Hybrid Logical Clock revision string
-- `_updated_at` â€” Last modification timestamp
-- `_source_node` â€” Node that made the last modification
-- `_deleted` â€” Tombstone flag
-- `_conflicts` â€” Array of conflicting versions
+Rango controls these fields internally:
 
+- `_id`
+- `_rev`
+- `_updated_at`
+- `_source_node`
+- `_deleted`
+- `_conflicts`

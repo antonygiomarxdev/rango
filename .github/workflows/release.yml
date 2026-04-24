@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -73,11 +74,11 @@ jobs:
 
       - name: Build CLI (native)
         if: ${{ !matrix.cross }}
-        run: cargo build --release --package rango --target ${{ matrix.target }}
+        run: cargo build --release --package rango-cli --target ${{ matrix.target }}
 
       - name: Build CLI (cross)
         if: matrix.cross
-        run: cross build --release --package rango --target ${{ matrix.target }}
+        run: cross build --release --package rango-cli --target ${{ matrix.target }}
 
       - name: Build Server (native)
         if: ${{ !matrix.cross }}
@@ -140,8 +141,20 @@ jobs:
       - name: Extract changelog for this version
         id: changelog
         run: |
-          awk '/^## \['"${{ steps.version.outputs.VERSION }}"'\]/,/^## \[/' CHANGELOG.md \
-            | sed '$d' > release_notes.md
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          if grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            awk '/^## \['"$VERSION"'\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
+          elif grep -q "^## \[Unreleased\]" CHANGELOG.md; then
+            awk '/^## \[Unreleased\]/,/^## \[/' CHANGELOG.md | sed '$d' > release_notes.md
+          else
+            cat > release_notes.md <<EOF
+          Release v$VERSION
+          
+          Binary artifacts:
+          - rango (CLI)
+          - rango-server (sync hub)
+          EOF
+          fi
           cat release_notes.md
 
       - name: Create release

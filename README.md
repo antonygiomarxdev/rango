@@ -1,262 +1,170 @@
 # Rango
 
-<p align="center">
-  <strong>Durable document memory for stateful AI systems.</strong><br>
-  Local-first state · Durable history · Incremental sync
-</p>
+Durable memory substrate for stateful AI systems.
 
-<p align="center">
-  <a href="https://github.com/antonygiomarxdev/rango/actions/workflows/ci.yml"><img src="https://github.com/antonygiomarxdev/rango/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/antonygiomarxdev/rango/releases"><img src="https://img.shields.io/github/v/release/antonygiomarxdev/rango" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSL%201.1%20%2B%20commercial-blue.svg" alt="License"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.85%2B-orange.svg" alt="MSRV"></a>
-</p>
+Rango is memory-first, document-native, and local-first. It is not a generic database product and not a workflow product.
 
----
+## Product Position
 
-## Why Rango?
+Rango is built as infrastructure below agents and apps:
 
-Stateful agents, copilots, and long-running automations all hit the same wall: they need memory that survives restarts, survives disconnects, and syncs without replaying the whole world. Rango is built around that reality.
+- canonical state and history for operational memory
+- append-only events plus materialized current state
+- local-first writes with incremental sync
+- clear layer boundaries for future semantic/retrieval projections
 
-| Problem | Rango's answer |
-|---------|---------------|
-| Agent process restarts or crashes | State and change history are stored durably |
-| Memory must keep working offline | Local-first reads and writes, sync later |
-| Multiple nodes continue from diverged state | Incremental sync with `_rev` ordering and conflict retention |
-| Memory should look like documents, not rows | BSON-native documents and document-level mutations |
-| Platform teams need safe operational state | Encryption at rest, oplog, checkpoints, and audit-friendly history |
+## v1 Scope
 
-Rango is not a generic storage product. It is a substrate you embed to give AI systems durable operational memory.
+Included in v1:
 
----
+- embedded local engine
+- append-only oplog
+- current state store
+- simple indexes and deterministic replay
+- snapshots/checkpoints
+- sync foundations (push/pull + checkpoint progression)
+- tenant/namespace isolation primitives
 
-## Core Capabilities
+Out of v1 core:
 
-- **Durable document memory** — documents, revisions, and change history are first-class
-- **Local-first runtime state** — no network dependency for the hot path
-- **Incremental sync** — checkpoint-based push/pull over HTTP/JSON
-- **Conflict retention** — Last-Write-Wins plus `_conflicts` history for reconciliation
-- **Document query and mutation engine** — `$eq`, `$in`, `$gt`, `$gte`, `$lt`, `$lte`, `$and`, `$or`, plus `$set`/`$unset`/`$inc`
-- **Secondary indexes** — B-tree indexes created and dropped at runtime
-- **At-rest encryption** — AES-256-GCM with passphrase-derived keys
-- **Import/export** — structured memory snapshot exchange for bootstrap and recovery
-- **Operational tooling** — `init`, `inspect`, `import`, `export`, `bench`, `doctor`, `sync`
-- **Observability** — structured tracing, metrics, and durable sync metadata
+- vector-native retrieval
+- graph reasoning engine
+- workflow/orchestration semantics
+- dynamic plugin loading in core
 
----
+## Install
+
+### Option 1: GitHub Releases (recommended for product teams)
+
+Download the latest platform archive from [GitHub Releases](https://github.com/antonygiomarxdev/rango/releases), then add the extracted binaries to your `PATH`:
+
+- `rango` (CLI)
+- `rango-server` (sync hub)
+
+### Option 2: Build/install from source
+
+```bash
+cargo install --path crates/cli
+cargo install --path crates/server
+```
+
+### Option 3: Run directly from workspace
+
+```bash
+cargo run -p rango-cli -- --help
+cargo run -p rango-server -- --help
+```
 
 ## Quick Start
 
-### As a library
+### 1) Local memory workspace via CLI
 
-```toml
-# Cargo.toml
-[dependencies]
-rango-sdk = { git = "https://github.com/antonygiomarxdev/rango", package = "rango-sdk" }
-tokio = { version = "1", features = ["full"] }
+```bash
+rango init ./memory
+rango inspect ./memory
 ```
 
+Import/export test:
+
+```bash
+rango import --path ./memory --collection events ./events.jsonl
+rango export --path ./memory --collection events --output ./events-export.jsonl
+rango doctor ./memory
+```
+
+### 2) Embed as a Rust library
+
 ```rust
-use rango_sdk::{RangoClient, RangoConfig};
-use serde_json::json;
+use std::sync::Arc;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let client = RangoClient::open("./my-data", RangoConfig::default()).await?;
-    let memory = client.collection("agent_memory");
+use bson::doc;
+use rango_oplog::FileOplog;
+use rango_sdk::RangoClient;
+use rango_storage::RedbStorage;
 
-    // Persist a durable memory record
-    let id = memory.insert_one(json!({
-        "agent_id": "planner-01",
-        "kind": "conversation_summary",
-        "content": "User wants a phased rollout with strong safety guarantees.",
-        "importance": 0.87
-    })).await?;
+fn main() -> anyhow::Result<()> {
+    let root = std::path::PathBuf::from("./memory");
+    std::fs::create_dir_all(&root)?;
 
-    // Recover that memory later
-    let doc = memory.find_one(json!({ "_id": id })).await?;
-    println!("{doc:?}");
+    let storage = Arc::new(RedbStorage::open(root.join("data.redb"))?);
+    let oplog = Arc::new(FileOplog::new(root.join("oplog.rgo"))?);
+    let client = RangoClient::open(storage, oplog, "agent-node-1")?;
 
-    // Query operational memory by semantic metadata
-    let important = memory.find_many(json!({ "importance": { "$gte": 0.8 } })).await?;
-    println!("Important memories: {}", important.len());
+    let state = client.collection("agent_state");
+    let id = state.insert_one(doc! {
+        "tenant_id": "acme",
+        "namespace": "planner",
+        "status": "running",
+        "step": "collect-context"
+    })?;
+
+    let current = state.find_one(&id)?;
+    println!("current={current:?}");
 
     Ok(())
 }
 ```
 
-### As a sync server
+### 3) Run a sync hub
+
+Start server:
 
 ```bash
-cargo build --release -p rango-server
-RANGO_TOKEN=secret ./target/release/rango-server --port 8080 --data ./server-data
+rango-server --bind 0.0.0.0 --port 8080 --token dev-token --oplog-path ./server-oplog.rgo
 ```
 
-### CLI
+Sync a workspace:
 
 ```bash
-cargo install --git https://github.com/antonygiomarxdev/rango --package rango-cli
-
-rango init ./my-data
-rango import --collection events ./dump.jsonl
-rango inspect ./my-data
-rango sync --server http://localhost:8080 --token secret ./my-data
-rango doctor ./my-data
+rango sync ./memory --server http://localhost:8080 --token dev-token --node-id node-a
 ```
 
----
+## Integration Modes for Products Built on Rango
 
-## Architecture
+1. Embedded mode: each product instance embeds Rango locally for offline durability.
+2. Hub-and-spoke mode: product instances sync to a central `rango-server` hub.
+3. Multi-product mode: each product gets tenant/namespace isolation and shared sync topology.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    rango-sdk (public API)                │
-├──────────────────────────┬──────────────────────────────┤
-│      rango-core          │       rango-server            │
-│  (engine orchestration)  │   (Axum HTTP push/pull)       │
-├────────┬─────────┬───────┴────────┬────────────────────-┤
-│ query  │  index  │    oplog       │       sync           │
-├────────┴─────────┴────────────────┴─────────────────────┤
-│                    rango-storage                         │
-│          (StorageEngine trait + in-memory impl)          │
-├─────────────────────────────────────────────────────────┤
-│                    rango-types                           │
-│    (DocumentId · Revision · Mutation · Checkpoint)       │
-└─────────────────────────────────────────────────────────┘
-```
+This allows products other than OpenClaw to use the same substrate with the same core contract.
 
-Every layer depends only on the layer below it. The `StorageEngine` trait is the main extension point, and the core abstraction is not just storage: it is durable document state plus revisioned history.
+## Validation
 
-Full architecture: [docs/architecture/overview.md](docs/architecture/overview.md)
+Run full checks:
 
----
-
-## Crates
-
-| Crate | Description |
-|-------|-------------|
-| `rango-types` | Shared primitives for document identity, revisions, mutations, and checkpoints |
-| `rango-storage` | Pluggable KV engine, durability primitives, and AES-256-GCM encryption |
-| `rango-index` | Primary and secondary index management |
-| `rango-query` | Filter, projection, sort, and document update operators |
-| `rango-oplog` | Durable append-only change history |
-| `rango-sync` | Incremental sync engine, checkpoints, and conflict handling |
-| `rango-core` | Main engine for document state, metadata, and orchestration |
-| `rango-server` | Axum-based HTTP sync server |
-| `rango-sdk` | Public Rust SDK for embedding Rango into applications |
-| `rango-cli` | Operator tooling for local stores and sync flows |
-
----
-
-## Target Use Cases
-
-- durable memory for copilots and autonomous agents
-- local operational state for automations that must survive restarts
-- syncable document state across desktop, edge, and backend runtimes
-- embedded memory layers where heavyweight persistence stacks would be overkill
-
----
-
-## Sync Protocol
-
-Rango uses a simple checkpoint-based push/pull protocol over HTTP/JSON.
-
-```
-Edge Node                          Sync Server
-    |                                   |
-    |-- POST /push (mutations) -------> |
-    |<- 200 OK (acked seq numbers) -----|
-    |                                   |
-    |-- GET /pull?since=<checkpoint> -> |
-    |<- 200 OK (mutations) -------------|
-```
-
-Each document carries a `_rev` (Hybrid Logical Clock timestamp). Conflicts are resolved Last-Write-Wins; the losing version is stored in `_conflicts` (max 10 retained), which makes sync suitable for operational memory instead of stateless cache replication.
-
-Full spec: [docs/reference/sync-protocol.md](docs/reference/sync-protocol.md)
-
----
-
-## Performance
-
-Benchmarks run on a single-core ARM Cortex-A53 (Raspberry Pi 4):
-
-| Operation | p50 | p99 |
-|-----------|-----|-----|
-| `find_one` by `_id` | < 1 ms | < 2 ms |
-| `insert_one` (no sync) | < 2 ms | < 5 ms |
-| `find_many` (1 k docs, no index) | < 5 ms | < 10 ms |
-| `find_many` (1 k docs, indexed) | < 1 ms | < 3 ms |
-
-Run benchmarks yourself:
 ```bash
-cargo bench --workspace
+cargo check --workspace
+cargo test --workspace
 ```
 
----
+Run end-to-end smoke script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke-e2e.ps1
+```
+
+## Workspace Crates
+
+- `rango-types`: shared canonical types
+- `rango-core`: engine + deterministic apply/replay
+- `rango-storage`: storage engine trait + `redb` backend + crypto
+- `rango-oplog`: append-only operation log
+- `rango-sync`: sync queue/checkpoint/scheduler/client
+- `rango-server`: HTTP sync hub
+- `rango-sdk`: embeddable Rust API
+- `rango-cli`: operator and local tooling
 
 ## Documentation
 
 - [Docs Index](docs/README.md)
-- [Vision & Principles](docs/vision.md)
-- [Architecture](docs/architecture/overview.md)
+- [Vision](docs/vision.md)
+- [Architecture Overview](docs/architecture/overview.md)
 - [Memory Model](docs/architecture/memory/model.md)
-- [Memory Layers](docs/architecture/memory/layers.md)
-- [Memory API Sketch](docs/architecture/memory/api-sketch.md)
 - [API Reference](docs/reference/api.md)
-- [Query Language](docs/reference/query-language.md)
 - [Sync Protocol](docs/reference/sync-protocol.md)
 - [Security](docs/operations/security.md)
-- [ADR-001: Storage Engine](docs/adr/ADR-001-storage-engine.md)
-- [ADR-002: ID Generation](docs/adr/ADR-002-id-generation.md)
-- [ADR-003: Sync Protocol](docs/adr/ADR-003-sync-protocol.md)
-
----
-
-## MSRV Policy
-
-Rango maintains a minimum supported Rust version of **1.85** (Rust Edition 2024).
-MSRV bumps require a minor version bump and are announced in the changelog.
-
----
-
-## Licensing
-
-Rango is **source-available**, not OSI open source.
-
-The repository is licensed under **Business Source License 1.1** with a project-specific
-Additional Use Grant designed to keep the code accessible to builders and smaller teams,
-while requiring a paid commercial license for large organizations and monetized platform use.
-
-You can generally use Rango without a separate commercial license for:
-
-- personal, educational, research, and evaluation use
-- open-source projects and non-profits
-- internal self-hosted use by organizations below the commercial threshold
-- small teams with fewer than 25 employees and less than USD 2,000,000 annual revenue
-
-A separate commercial license is required for:
-
-- hosted or managed services offered to third parties
-- embedded commercial products distributed to third parties
-- organizations at or above either commercial threshold
-- cloud providers, hyperscalers, and competitive offerings
-
-See [LICENSE](LICENSE) for the binding terms and [LICENSING.md](LICENSING.md) for the practical usage matrix.
-
----
-
-## Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
-Bug reports, feature requests, and discussions go in [GitHub Issues](https://github.com/antonygiomarxdev/rango/issues) and [Discussions](https://github.com/antonygiomarxdev/rango/discussions).
-
----
+- [ADRs](docs/adr/)
 
 ## License
 
-Source-available under [Business Source License 1.1](LICENSE) with a project-specific Additional Use Grant.
-
-Commercial licenses are available for hosted, embedded, large-enterprise, and competitive uses.
-See [LICENSING.md](LICENSING.md) for the practical policy.
-
+Source-available under [Business Source License 1.1](LICENSE) with project-specific additional use grant.
+See [LICENSING.md](LICENSING.md) for practical policy.

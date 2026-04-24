@@ -16,6 +16,7 @@
 
 ## Operations
 - [Security](operations/security.md)
+- [Release Process](operations/release.md)
 
 ## ADRs
 - [ADR Directory](adr/)

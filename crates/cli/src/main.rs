@@ -8,7 +8,7 @@ use zeroize::Zeroize;
 
 #[derive(Parser)]
 #[command(name = "rango")]
-#[command(about = "Rango — Local-first embedded document database")]
+#[command(about = "Rango — Local-first memory substrate CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -16,9 +16,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize a new Rango database
+    /// Initialize a new Rango memory workspace
     Init {
-        /// Path to create the database
+        /// Path to create the workspace
         #[arg(default_value = ".rango")]
         path: PathBuf,
         /// Maximum document size in bytes (default: 16MB)
@@ -31,15 +31,15 @@ enum Commands {
         #[arg(long)]
         passphrase: Option<String>,
     },
-    /// Inspect database status
+    /// Inspect workspace status
     Inspect {
-        /// Path to the database
+        /// Path to the workspace
         #[arg(default_value = ".rango")]
         path: PathBuf,
     },
     /// Import documents from a file
     Import {
-        /// Path to the database
+        /// Path to the workspace
         #[arg(long, default_value = ".rango")]
         path: PathBuf,
         /// Collection name to import into
@@ -51,13 +51,13 @@ enum Commands {
         /// Import format
         #[arg(short, long, value_enum, default_value = "json")]
         format: ImportFormat,
-        /// Encryption passphrase (required if database was initialized with encryption)
+        /// Encryption passphrase (required if workspace was initialized with encryption)
         #[arg(long)]
         passphrase: Option<String>,
     },
     /// Export documents to a file
     Export {
-        /// Path to the database
+        /// Path to the workspace
         #[arg(long, default_value = ".rango")]
         path: PathBuf,
         /// Collection name to export from
@@ -69,7 +69,7 @@ enum Commands {
         /// Export format
         #[arg(short, long, value_enum, default_value = "json")]
         format: ExportFormat,
-        /// Encryption passphrase (required if database was initialized with encryption)
+        /// Encryption passphrase (required if workspace was initialized with encryption)
         #[arg(long)]
         passphrase: Option<String>,
     },
@@ -81,16 +81,16 @@ enum Commands {
     },
     /// Run diagnostics
     Doctor {
-        /// Path to the database
+        /// Path to the workspace
         #[arg(default_value = ".rango")]
         path: PathBuf,
-        /// Encryption passphrase (required if database was initialized with encryption)
+        /// Encryption passphrase (required if workspace was initialized with encryption)
         #[arg(long)]
         passphrase: Option<String>,
     },
     /// Sync with a remote server (one-shot push/pull)
     Sync {
-        /// Path to the database
+        /// Path to the workspace
         #[arg(default_value = ".rango")]
         path: PathBuf,
         /// Server URL
@@ -102,7 +102,7 @@ enum Commands {
         /// Node identifier
         #[arg(short, long, default_value = "cli-node")]
         node_id: String,
-        /// Encryption passphrase (required if database was initialized with encryption)
+        /// Encryption passphrase (required if workspace was initialized with encryption)
         #[arg(long)]
         passphrase: Option<String>,
     },
@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
         Commands::Inspect { path } => {
             let path = sanitize_path(&path)?;
             if !path.exists() {
-                anyhow::bail!("Database not found at {}", path.display());
+                anyhow::bail!("Workspace not found at {}", path.display());
             }
             println!("Rango memory workspace at {}", path.display());
             println!("  Status: OK");
@@ -377,12 +377,12 @@ fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
     println!("Rango Doctor");
     println!("{}", "=".repeat(50));
 
-    // Check database directory
+    // Check workspace directory
     println!("\nStorage Check");
     if path.exists() {
-        println!("  [OK] Database directory exists: {}", path.display());
+        println!("  [OK] Workspace directory exists: {}", path.display());
     } else {
-        println!("  [WARN] Database directory not found: {}", path.display());
+        println!("  [WARN] Workspace directory not found: {}", path.display());
     }
 
     // Config check
@@ -486,7 +486,7 @@ fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
             Err(e) => println!("  [WARN] Oplog exists but cannot open: {}", e),
         }
     } else {
-        println!("  [INFO] Oplog not found (expected for new databases)");
+        println!("  [INFO] Oplog not found (expected for new workspaces)");
     }
 
     if queue_path.exists() {
@@ -513,7 +513,7 @@ fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
             Err(e) => println!("  [WARN] Sync queue exists but cannot open: {}", e),
         }
     } else {
-        println!("  [INFO] Sync queue not found (expected for new databases)");
+        println!("  [INFO] Sync queue not found (expected for new workspaces)");
     }
 
     if checkpoint_path.exists() {
@@ -524,7 +524,7 @@ fn run_doctor(path: &PathBuf, passphrase: Option<&str>) -> Result<()> {
             Err(e) => println!("  [WARN] Checkpoint exists but cannot read: {}", e),
         }
     } else {
-        println!("  [INFO] Checkpoint not found (expected for new databases)");
+        println!("  [INFO] Checkpoint not found (expected for new workspaces)");
     }
 
     println!("\n{}", "=".repeat(50));
@@ -552,14 +552,14 @@ fn load_crypto(
     if salt_path.exists() {
         let salt = std::fs::read(&salt_path)?;
         let pass = passphrase
-            .ok_or_else(|| anyhow::anyhow!("Database is encrypted. Passphrase required."))?;
+            .ok_or_else(|| anyhow::anyhow!("Workspace is encrypted. Passphrase required."))?;
         Ok(Some(Arc::new(
             rango_storage::CryptoEngine::from_passphrase(pass, &salt),
         )))
     } else {
         if passphrase.is_some() {
             return Err(anyhow::anyhow!(
-                "Passphrase provided but database is not encrypted."
+                "Passphrase provided but workspace is not encrypted."
             ));
         }
         Ok(None)
@@ -620,7 +620,7 @@ async fn run_sync(
     println!("{}", "=".repeat(50));
 
     if !path.exists() {
-        anyhow::bail!("Database not found at {}", path.display());
+        anyhow::bail!("Workspace not found at {}", path.display());
     }
 
     let crypto = load_crypto(path, passphrase)?;
@@ -674,3 +674,4 @@ async fn run_sync(
 
     Ok(())
 }
+

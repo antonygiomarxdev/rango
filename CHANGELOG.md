@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial public release of the Rango embedded document database
+- Initial public release of the Rango memory substrate
 - `rango-types`: shared primitives (DocumentId, Revision, Mutation, Checkpoint)
 - `rango-storage`: pluggable KV storage engine with AES-256-GCM encryption
 - `rango-index`: primary and secondary B-tree index management

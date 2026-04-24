@@ -36,6 +36,12 @@ impl Metrics {
         self.sync_pulls.fetch_add(n as u64, Ordering::Relaxed);
     }
 
+    pub fn record_local_write_latency_us(&self, _us: u64) {}
+
+    pub fn record_replay_duration_us(&self, _us: u64) {}
+
+    pub fn record_replay_drift_detection(&self) {}
+
     pub fn snapshot(&self) -> MetricsSnapshot {
         MetricsSnapshot {
             inserts: self.inserts.load(Ordering::Relaxed),

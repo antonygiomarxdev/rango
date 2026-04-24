@@ -27,7 +27,7 @@ fn test_find_with_eq_filter() {
         .insert_one(&coll, doc! { "name": "Charlie", "age": 35 })
         .unwrap();
 
-    let mut cursor = engine
+    let cursor = engine
         .find(&coll, &doc! { "name": "Alice" }, None, None, None, None)
         .unwrap();
     let results: Vec<_> = cursor.filter_map(|r| r.ok()).collect();
@@ -51,7 +51,7 @@ fn test_find_with_gt_filter() {
         .insert_one(&coll, doc! { "name": "Charlie", "score": 70i64 })
         .unwrap();
 
-    let mut cursor = engine
+    let cursor = engine
         .find(
             &coll,
             &doc! { "score": { "$gt": 75i64 } },
@@ -81,7 +81,7 @@ fn test_find_with_in_filter() {
         .insert_one(&coll, doc! { "name": "Charlie", "status": "inactive" })
         .unwrap();
 
-    let mut cursor = engine
+    let cursor = engine
         .find(
             &coll,
             &doc! { "status": { "$in": ["active", "pending"] } },
@@ -114,7 +114,7 @@ fn test_find_with_and_filter() {
         )
         .unwrap();
 
-    let mut cursor = engine
+    let cursor = engine
         .find(
             &coll,
             &doc! { "$and": [{ "age": 30i64 }, { "active": true }] },
@@ -145,7 +145,7 @@ fn test_find_with_or_filter() {
         .insert_one(&coll, doc! { "name": "Charlie", "role": "guest" })
         .unwrap();
 
-    let mut cursor = engine
+    let cursor = engine
         .find(
             &coll,
             &doc! { "$or": [{ "role": "admin" }, { "role": "user" }] },
@@ -169,7 +169,7 @@ fn test_find_with_limit() {
         engine.insert_one(&coll, doc! { "index": i }).unwrap();
     }
 
-    let mut cursor = engine
+    let cursor = engine
         .find(&coll, &doc! {}, None, None, None, Some(3))
         .unwrap();
     let results: Vec<_> = cursor.filter_map(|r| r.ok()).collect();
@@ -186,7 +186,7 @@ fn test_find_with_skip() {
         engine.insert_one(&coll, doc! { "index": i }).unwrap();
     }
 
-    let mut cursor = engine
+    let cursor = engine
         .find(&coll, &doc! {}, None, None, Some(2), None)
         .unwrap();
     let results: Vec<_> = cursor.filter_map(|r| r.ok()).collect();
@@ -259,7 +259,7 @@ fn test_find_with_sort() {
         .insert_one(&coll, doc! { "name": "Bob", "score": 20i64 })
         .unwrap();
 
-    let mut cursor = engine
+    let cursor = engine
         .find(&coll, &doc! {}, None, Some(("score", false)), None, None)
         .unwrap();
     let results: Vec<_> = cursor.filter_map(|r| r.ok()).collect();

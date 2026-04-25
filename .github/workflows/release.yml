@@ -153,11 +153,11 @@ jobs:
             fi
             SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
             TS="$(date -u +%Y%m%d-%H%M)"
-            echo "release_name=Rango v${VERSION}-edge.${TS}+${SHORT_SHA}" >> $GITHUB_OUTPUT
-            echo "release_tag=v${VERSION}-edge-${TS}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "release_name=Rango v${VERSION}-rango.${TS}+${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "release_tag=v${VERSION}-rango-${TS}-${SHORT_SHA}" >> $GITHUB_OUTPUT
             echo "prerelease=true" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
-            echo "notes_mode=edge" >> $GITHUB_OUTPUT
+            echo "notes_mode=prerelease" >> $GITHUB_OUTPUT
           fi
 
       - name: Extract changelog for this version

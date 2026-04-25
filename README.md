@@ -135,7 +135,7 @@ This allows products other than OpenClaw to use the same substrate with the same
 ## Release Naming
 
 - Stable tags: `vX.Y.Z` -> GitHub release name `Rango vX.Y.Z`
-- Main prereleases: `vX.Y.Z-edge-YYYYMMDD-HHMM-SHA` -> GitHub release name `Rango vX.Y.Z-edge.YYYYMMDD-HHMM+SHA`
+- Main prereleases: `vX.Y.Z-rango-YYYYMMDD-HHMM-SHA` -> GitHub release name `Rango vX.Y.Z-rango.YYYYMMDD-HHMM+SHA`
 
 ## Validation
 

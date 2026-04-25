@@ -2,15 +2,17 @@ use std::sync::{Arc, Mutex};
 
 use bson::doc;
 use rango_core::{
-    AnomalySignalHook, AuditSink, BoundedContextFilterHook, ControlPlane, NoopPromotionGateHook,
-    PromotionRequest, RangoEngine, ReadRequest, RetrievalGateHook, TrustScoringHook, WriteContext,
-    WritePayload, WriteValidationHook,
+    AnomalySignalHook, AuditSink, BoundedContextFilterHook, ControlPlane, NoopAnomalySignalHook,
+    NoopAuditSink, NoopBoundedContextFilterHook, NoopPromotionGateHook, NoopRetrievalGateHook,
+    NoopTrustScoringHook, NoopWriteValidationHook, PromotionGateHook, PromotionRequest,
+    RangoEngine, ReadRequest, RetrievalGateHook, TrustScoringHook, WriteContext, WritePayload,
+    WriteValidationHook,
 };
 use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
 use rango_types::{
-    CollectionName, DocumentId, GovernanceDecision, MemoryTier, Mutation, MutationOp,
-    PolicyDecision, RangoError, Revision,
+    ArtifactEnvelope, CollectionName, DocumentId, EventEnvelope, GovernanceDecision,
+    GovernanceMetadata, MemoryTier, Mutation, MutationOp, PolicyDecision, RangoError, Revision,
 };
 use std::str::FromStr;
 
@@ -375,6 +377,45 @@ impl AuditSink for OrderedAuditSink {
     }
 }
 
+fn base_governance_metadata(record_type: &str) -> GovernanceMetadata {
+    let now = bson::DateTime::now();
+    GovernanceMetadata {
+        id: "record-1".to_string(),
+        namespace: "ns".to_string(),
+        tenant_id: "tenant-a".to_string(),
+        r#type: record_type.to_string(),
+        rev: "1-0-node-a".to_string(),
+        created_at: now,
+        updated_at: now,
+        source: "node-a".to_string(),
+        actor: "system".to_string(),
+        lineage: "lineage-1".to_string(),
+        schema_version: 1,
+        trust_score: 0.9,
+        verified: Some(true),
+        expires_at: None,
+    }
+}
+
+struct CountingPromotionHook {
+    calls: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl PromotionGateHook for CountingPromotionHook {
+    fn sanitize(&self, _request: &PromotionRequest, payload: &WritePayload) -> WritePayload {
+        self.calls.lock().unwrap().push("sanitize");
+        payload.clone()
+    }
+
+    fn allow(&self, _request: &PromotionRequest, _payload: &WritePayload) -> GovernanceDecision {
+        self.calls.lock().unwrap().push("allow");
+        GovernanceDecision {
+            decision: PolicyDecision::Allow,
+            reason: "promotion_allowed".to_string(),
+        }
+    }
+}
+
 #[test]
 fn test_control_plane_hook_invocation_order_write_and_read() {
     let order = Arc::new(Mutex::new(Vec::new()));
@@ -505,6 +546,82 @@ fn test_control_plane_rejects_invalid_trust_scores() {
 }
 
 #[test]
+fn test_control_plane_rejects_infinite_trust_scores() {
+    let control_plane = ControlPlane::default();
+    let write_ctx = WriteContext {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        actor: "actor".to_string(),
+        source: "source".to_string(),
+        tier: MemoryTier::State,
+    };
+
+    for trust_score in [f64::INFINITY, f64::NEG_INFINITY] {
+        let payload = WritePayload::StateWithTrust {
+            document: doc! { "content": "candidate" },
+            trust_score,
+        };
+        let decision = control_plane.write_path(&write_ctx, &payload).unwrap();
+        assert!(matches!(decision.decision, PolicyDecision::Reject));
+        assert!(decision.reason.starts_with("invalid_trust_score:"));
+    }
+}
+
+#[test]
+fn test_control_plane_rejects_invalid_event_envelope_payload() {
+    let control_plane = ControlPlane::default();
+    let write_ctx = WriteContext {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        actor: "actor".to_string(),
+        source: "source".to_string(),
+        tier: MemoryTier::Episodic,
+    };
+
+    let mut metadata = base_governance_metadata("event");
+    metadata.tenant_id.clear();
+    let payload = WritePayload::Event(EventEnvelope {
+        metadata,
+        write_id: "write-1".to_string(),
+        sequence: 1,
+        mutation_type: "insert".to_string(),
+        mutation_data: Some(doc! { "k": "v" }),
+        is_tombstone: false,
+    });
+
+    let decision = control_plane.write_path(&write_ctx, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert!(decision.reason.starts_with("invalid_event_envelope:"));
+}
+
+#[test]
+fn test_control_plane_rejects_invalid_artifact_envelope_payload() {
+    let control_plane = ControlPlane::default();
+    let write_ctx = WriteContext {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        actor: "actor".to_string(),
+        source: "source".to_string(),
+        tier: MemoryTier::Artifact,
+    };
+
+    let mut metadata = base_governance_metadata("semantic_projection");
+    metadata.namespace.clear();
+    let payload = WritePayload::Artifact(ArtifactEnvelope {
+        metadata,
+        write_id: "write-1".to_string(),
+        artifact_type: "semantic_projection".to_string(),
+        source_revision: "1-0-node-a".to_string(),
+        content: vec![],
+        parent_artifact_revision: None,
+    });
+
+    let decision = control_plane.write_path(&write_ctx, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert!(decision.reason.starts_with("invalid_artifact_envelope:"));
+}
+
+#[test]
 fn test_control_plane_read_path_rejects_invalid_limit() {
     let control_plane = ControlPlane::default();
     let read_request = ReadRequest {
@@ -518,7 +635,46 @@ fn test_control_plane_read_path_rejects_invalid_limit() {
         .read_path(&read_request, vec![doc! { "k": "v" }])
         .unwrap();
     assert!(matches!(decision.decision, PolicyDecision::Reject));
-    assert_eq!(decision.reason, "invalid_read_request:limit_must_be_positive");
+    assert_eq!(
+        decision.reason,
+        "invalid_read_request:limit_must_be_positive"
+    );
+    assert!(filtered.is_empty());
+}
+
+#[test]
+fn test_control_plane_read_path_rejects_empty_tenant_id() {
+    let control_plane = ControlPlane::default();
+    let read_request = ReadRequest {
+        tenant_id: String::new(),
+        namespace: "ns".to_string(),
+        tier: MemoryTier::State,
+        limit: 1,
+    };
+
+    let (decision, filtered) = control_plane
+        .read_path(&read_request, vec![doc! { "k": "v" }])
+        .unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert_eq!(decision.reason, "invalid_read_request:empty_tenant_id");
+    assert!(filtered.is_empty());
+}
+
+#[test]
+fn test_control_plane_read_path_rejects_empty_namespace() {
+    let control_plane = ControlPlane::default();
+    let read_request = ReadRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: String::new(),
+        tier: MemoryTier::State,
+        limit: 1,
+    };
+
+    let (decision, filtered) = control_plane
+        .read_path(&read_request, vec![doc! { "k": "v" }])
+        .unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert_eq!(decision.reason, "invalid_read_request:empty_namespace");
     assert!(filtered.is_empty());
 }
 
@@ -559,6 +715,34 @@ fn test_control_plane_promotion_path_rejects_non_semantic_route() {
         decision.reason,
         "semantic_promotion_requires_episodic_to_semantic"
     );
+}
+
+#[test]
+fn test_control_plane_promotion_invalid_route_short_circuits_promotion_hooks() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let control_plane = ControlPlane::with_hooks(
+        Arc::new(NoopWriteValidationHook),
+        Arc::new(NoopTrustScoringHook),
+        Arc::new(CountingPromotionHook {
+            calls: calls.clone(),
+        }),
+        Arc::new(NoopRetrievalGateHook),
+        Arc::new(NoopBoundedContextFilterHook),
+        Arc::new(NoopAnomalySignalHook),
+        Arc::new(NoopAuditSink),
+    );
+    let request = PromotionRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        from: MemoryTier::State,
+        to: MemoryTier::Semantic,
+        candidate_id: "candidate-1".to_string(),
+    };
+    let payload = WritePayload::State(doc! { "k": "v" });
+
+    let (decision, _sanitized) = control_plane.promotion_path(&request, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert!(calls.lock().unwrap().is_empty());
 }
 
 #[test]

@@ -182,6 +182,9 @@ impl<S: StorageEngine> RangoEngine<S> {
             },
         };
         mutation.write_id = mutation.write_id();
+        mutation
+            .validate_metadata()
+            .map_err(|e| RangoError::Storage(format!("invalid local mutation metadata: {e}")))?;
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
@@ -381,6 +384,9 @@ impl<S: StorageEngine> RangoEngine<S> {
             },
         };
         mutation.write_id = mutation.write_id();
+        mutation
+            .validate_metadata()
+            .map_err(|e| RangoError::Storage(format!("invalid local mutation metadata: {e}")))?;
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
@@ -445,6 +451,9 @@ impl<S: StorageEngine> RangoEngine<S> {
             },
         };
         mutation.write_id = mutation.write_id();
+        mutation
+            .validate_metadata()
+            .map_err(|e| RangoError::Storage(format!("invalid local mutation metadata: {e}")))?;
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
@@ -573,6 +582,10 @@ impl<S: StorageEngine> RangoEngine<S> {
             .map_err(|e| RangoError::Storage(e.to_string()))?;
 
         for mutation in mutations {
+            mutation
+                .validate_metadata()
+                .map_err(|e| RangoError::Sync(format!("invalid mutation metadata: {e}")))?;
+
             if !mutation.write_id.is_empty() {
                 if !seen_write_ids.insert(mutation.write_id.clone()) {
                     drift_detected = true;

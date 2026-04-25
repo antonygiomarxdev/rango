@@ -93,8 +93,7 @@ async fn checkpoints_are_scoped_per_tenant_and_namespace() {
         .unwrap();
     assert_eq!(node_mismatch_ns_a.rejected_non_owner_count, 1);
     assert_eq!(
-        node_mismatch_ns_a.new_checkpoint.0,
-        ns_a_push.new_checkpoint.0,
+        node_mismatch_ns_a.new_checkpoint.0, ns_a_push.new_checkpoint.0,
         "ns-a checkpoint must not jump due to ns-b activity on owner mismatch path",
     );
 

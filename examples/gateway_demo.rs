@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Filter query
     println!("\n4. Querying sensors with temperature > 22°C...");
-    let mut cursor = client.engine.find(
+    let mut cursor = client.__engine().find(
         &rango_types::CollectionName::new("sensors"),
         &doc! { "temperature": { "$gt": 22.0 } },
         None, None, None, None

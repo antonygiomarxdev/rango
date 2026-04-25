@@ -95,7 +95,7 @@ impl<S: StorageEngine> RangoClient<S> {
                 }
             };
 
-            match self.engine.insert_one(&coll, doc) {
+            match self.__engine().insert_one(&coll, doc) {
                 Ok(_) => {
                     imported += 1;
                     progress.on_document(imported);
@@ -123,7 +123,7 @@ impl<S: StorageEngine> RangoClient<S> {
         let mut writer = BufWriter::new(file);
         let coll = CollectionName::new(collection);
 
-        let cursor = self.engine.find_many(&coll)?;
+        let cursor = self.__engine().find_many(&coll)?;
         let mut exported = 0usize;
 
         for result in cursor {

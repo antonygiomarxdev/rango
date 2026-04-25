@@ -8,7 +8,7 @@ use tracing::instrument;
 
 /// Public SDK for Rango.
 pub struct RangoClient<S: StorageEngine> {
-    pub engine: RangoEngine<S>,
+    engine: RangoEngine<S>,
 }
 
 impl<S: StorageEngine> RangoClient<S> {
@@ -23,6 +23,7 @@ impl<S: StorageEngine> RangoClient<S> {
         })
     }
 
+    #[doc(hidden)]
     #[instrument(skip(storage, oplog, node_id, config))]
     pub fn open_with_config(
         storage: Arc<S>,
@@ -40,6 +41,14 @@ impl<S: StorageEngine> RangoClient<S> {
             client: self,
             name: CollectionName::new(name),
         }
+    }
+
+    /// Internal engine accessor. Hidden from documentation.
+    /// This is a temporary escape hatch for code not yet migrated to the stable SDK surface.
+    /// Do not build new code on this method; it may be removed in a future release.
+    #[doc(hidden)]
+    pub fn __engine(&self) -> &RangoEngine<S> {
+        &self.engine
     }
 }
 
@@ -60,8 +69,8 @@ impl<S: StorageEngine> CollectionClient<'_, S> {
     }
 
     #[instrument(skip(self), fields(collection = %self.name.0))]
-    pub fn find_many(&self) -> Result<rango_core::Cursor, RangoError> {
-        self.client.engine.find_many(&self.name)
+    pub fn find_many(&self) -> Result<crate::Cursor, RangoError> {
+        self.client.engine.find_many(&self.name).map(Into::into)
     }
 
     #[instrument(skip(self, update), fields(collection = %self.name.0))]

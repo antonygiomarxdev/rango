@@ -10,7 +10,7 @@ use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
 use rango_types::{
     CollectionName, DocumentId, GovernanceDecision, MemoryTier, Mutation, MutationOp,
-    PolicyDecision, Revision,
+    PolicyDecision, RangoError, Revision,
 };
 use std::str::FromStr;
 
@@ -136,6 +136,43 @@ fn test_conflict_resolution() {
     // Conflicts should be empty or reduced
     let remaining = engine.list_conflicts(&coll).unwrap();
     assert!(remaining.is_empty() || !remaining.iter().any(|(cid, _)| cid == &id));
+}
+
+#[test]
+fn test_apply_mutations_rejects_invalid_metadata() {
+    let engine = setup("node-a");
+    let coll = CollectionName::new("test");
+    let doc_id = DocumentId::new_uuid_v7();
+
+    let mutation = Mutation {
+        op: MutationOp::Insert,
+        collection: coll.0.clone(),
+        doc_id: doc_id.clone(),
+        patch: Some(doc! { "_id": doc_id.0.clone(), "name": "bad-meta" }),
+        seq: 1,
+        timestamp: bson::DateTime::now(),
+        rev: Revision::now("node-a"),
+        write_id: "bad-meta-write".to_string(),
+        metadata: rango_types::MutationMetadata {
+            id: doc_id,
+            namespace: coll.0.clone(),
+            tenant_id: String::new(),
+            r#type: "state".to_string(),
+            rev: Revision::now("node-a"),
+            created_at: bson::DateTime::now(),
+            updated_at: bson::DateTime::now(),
+            source: "node-a".to_string(),
+            actor: "node-a".to_string(),
+            lineage: "lineage".to_string(),
+            schema_version: 1,
+            trust_score: 0.8,
+            verified: Some(true),
+            expires_at: None,
+        },
+    };
+
+    let result = engine.apply_mutations_deterministic(&coll, vec![mutation]);
+    assert!(matches!(result, Err(RangoError::Sync(_))));
 }
 
 #[test]

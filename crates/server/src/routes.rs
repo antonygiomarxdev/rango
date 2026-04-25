@@ -174,6 +174,9 @@ impl ServerState {
                 expires_at: None,
             },
         };
+        mutation
+            .validate_metadata()
+            .map_err(|err| RangoError::Sync(format!("invalid_audit_metadata:{err}")))?;
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
@@ -733,6 +736,15 @@ fn append_mutation(
     tenant_id: &str,
     namespace: &str,
 ) -> Result<u64, RangoError> {
+    mutation
+        .validate_metadata()
+        .map_err(|err| RangoError::Sync(format!("invalid_metadata:{err}")))?;
+    if mutation.metadata.tenant_id != tenant_id || mutation.metadata.namespace != namespace {
+        return Err(RangoError::Sync(
+            "mutation tenant/namespace does not match request scope".to_string(),
+        ));
+    }
+
     // Simple idempotency check: deduplicate by write_id
     // Dedup key is tenant + namespace + write_id for isolation safety.
     let latest = state.oplog.latest_seq()?;

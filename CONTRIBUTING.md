@@ -80,6 +80,30 @@ cargo deny check
 - **Offline-first** — any feature that requires network must degrade gracefully when offline
 - **No silent data loss** — errors must propagate; mutations must be durable before ack
 
+### Clean Architecture (Crate Layering)
+Dependencies flow inward only. Each crate has one reason to change.
+
+- `rango-types` — pure domain contracts (envelopes, mutation metadata, checkpoints). No I/O. No deps on other workspace crates.
+- `rango-core` — engine, control plane, deterministic apply/replay. Depends on `rango-types` only. Owns use-case orchestration; never imports infra crates directly.
+- `rango-storage`, `rango-oplog`, `rango-index`, `rango-query` — infrastructure adapters behind traits defined in `rango-types`/`rango-core`. Never depended on by `rango-core`.
+- `rango-sync`, `rango-server`, `rango-sdk-rust`, `rango-cli` — entrypoints (transport, ingress, public API, CLI). Compose core + adapters; never bypass them.
+
+Forbidden:
+- Reverse dependencies (e.g. `rango-core` importing `rango-storage`).
+- Domain types living outside `rango-types`.
+- Adapter-specific leakage in core APIs (no `redb::*`, `axum::*`, etc. in `rango-core` signatures).
+- Workflow/orchestration semantics in core.
+
+### Clean Code Rules
+- One responsibility per module. Split when a file holds two unrelated change reasons.
+- Functions: short, intent-named verbs. No flag arguments — split into two functions instead.
+- Types: nouns describing the concept, not the storage shape (`MutationBatch`, not `BatchStruct`).
+- No `unwrap`/`expect`/`panic!` outside tests and explicit invariants. Use typed errors with `thiserror`.
+- No global mutable state. Configuration is constructed at the entrypoint and injected.
+- Public API: minimal surface. Expose traits, not concrete types, when consumers depend on behavior.
+- Comments explain *why*, not *what*. Delete redundant comments; rename instead.
+- No dead code, no commented-out code, no TODOs without an issue link.
+
 ---
 
 ## Testing Requirements
@@ -170,12 +194,14 @@ Do not add task-level checklists to `ROADMAP.md`; keep those in issues.
 
 ## Submitting a Pull Request
 
-1. **Fork** the repository and create a feature branch from `main`
+1. **Pick or open an issue** before writing code — every change must be tracked.
+2. **Branch off `main`** using the convention `issue/<N>-<short-slug>`:
    ```bash
-   git checkout -b feat/my-feature
+   git checkout -b issue/35-pyo3-binding
    ```
-2. Make your changes following the standards above
-3. Ensure all checks pass locally:
+   One issue per branch. One PR per branch. Delete the branch after merge.
+3. Make your changes following the standards above. Rebase on `main` rather than merging when refreshing.
+4. Ensure all checks pass locally:
    ```bash
    cargo fmt --all
    cargo clippy --workspace --all-targets --all-features -- -D warnings

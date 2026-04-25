@@ -167,11 +167,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_stable_api_compiles() {
-        // This test just verifies that the code compiles.
-        // Running main() is the real validation.
+        // Compilation of `main` is the real validation; this test exists so
+        // `cargo test` exercises the surface check too.
     }
 }

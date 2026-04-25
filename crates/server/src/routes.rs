@@ -189,6 +189,30 @@ impl ServerState {
     }
 }
 
+fn scoped_latest_checkpoint(
+    state: &ServerState,
+    tenant_id: &str,
+    namespace: &str,
+) -> Result<Checkpoint, RangoError> {
+    let latest = state.oplog.latest_seq()?;
+    if latest == 0 {
+        return Ok(Checkpoint::initial());
+    }
+
+    let entries = state.oplog.read_since(1, latest as usize + 1)?;
+    let scoped_latest = entries
+        .into_iter()
+        .filter(|entry| {
+            entry.mutation.metadata.tenant_id == tenant_id
+                && entry.mutation.metadata.namespace == namespace
+        })
+        .map(|entry| entry.seq)
+        .max()
+        .unwrap_or(0);
+
+    Ok(Checkpoint(scoped_latest))
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 enum ContainmentMode {
     #[default]
@@ -264,7 +288,8 @@ pub async fn handle_push(
 
     if req.node_id != principal.node_id {
         state.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
-        let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
+        let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+            .unwrap_or_else(|_| Checkpoint::initial());
         return Ok(Json(PushResponse {
             accepted_seqs: Vec::new(),
             new_checkpoint,
@@ -288,7 +313,8 @@ pub async fn handle_push(
         let _ =
             state.persist_audit_evidence("write", &req.tenant_id, &req.namespace, None, &decision);
         state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
-        let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
+        let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+            .unwrap_or_else(|_| Checkpoint::initial());
         return Ok(Json(PushResponse {
             accepted_seqs: Vec::new(),
             new_checkpoint,
@@ -391,7 +417,8 @@ pub async fn handle_push(
         audit.push(decision);
     }
 
-    let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
+    let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(PushResponse {
         accepted_seqs,
@@ -463,7 +490,8 @@ pub async fn handle_pull(
     if ControlPlane::is_reject(&read_decision) {
         return Ok(Json(PullResponse {
             mutations: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             audit: vec![read_decision],
         }));
     }
@@ -491,7 +519,8 @@ pub async fn handle_pull(
             *remaining -= 1;
         }
     }
-    let new_checkpoint = Checkpoint(state.oplog.latest_seq().unwrap_or(0));
+    let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(PullResponse {
         mutations,
@@ -609,7 +638,8 @@ pub async fn handle_promote(
         state.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             rejected_count: 1,
             audit: vec![GovernanceDecision {
                 decision: PolicyDecision::Reject,
@@ -624,7 +654,8 @@ pub async fn handle_promote(
             .fetch_add(1, Ordering::Relaxed);
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             rejected_count: 1,
             audit: vec![GovernanceDecision {
                 decision: PolicyDecision::Reject,
@@ -636,7 +667,8 @@ pub async fn handle_promote(
     if let Err(err) = req.mutation.validate_metadata() {
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             rejected_count: 1,
             audit: vec![GovernanceDecision {
                 decision: PolicyDecision::Reject,
@@ -653,7 +685,8 @@ pub async fn handle_promote(
             .fetch_add(1, Ordering::Relaxed);
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             rejected_count: 1,
             audit: vec![GovernanceDecision {
                 decision: PolicyDecision::Reject,
@@ -681,7 +714,8 @@ pub async fn handle_promote(
         state.register_decision_outcome(&req.tenant_id, &req.namespace, &semantic_path_decision);
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             rejected_count: 1,
             audit: vec![semantic_path_decision],
         }));
@@ -711,7 +745,8 @@ pub async fn handle_promote(
     if !matches!(decision.decision, PolicyDecision::Allow) {
         return Ok(Json(PromoteResponse {
             accepted_seqs: Vec::new(),
-            new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(0)),
+            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             rejected_count: 1,
             audit: vec![decision],
         }));
@@ -721,7 +756,8 @@ pub async fn handle_promote(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(PromoteResponse {
         accepted_seqs: vec![seq],
-        new_checkpoint: Checkpoint(state.oplog.latest_seq().unwrap_or(seq)),
+        new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
         rejected_count: 0,
         audit: vec![decision],
     }))

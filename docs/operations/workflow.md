@@ -21,6 +21,19 @@ This is the operational workflow for planning and execution in Rango.
 4. Move status through labels (`status:ready`, `status:in-progress`, `status:blocked`, `status:done`).
 5. Merge PR with `Closes #<issue>`.
 
+## Branching Policy
+
+All work happens on a dedicated branch tied to an issue. No direct commits to `main`.
+
+- Branch name: `issue/<N>-<short-slug>` (e.g. `issue/35-pyo3-binding`).
+- Branch off `main`. Rebase rather than merge from `main` when refreshing.
+- One issue per branch. If scope grows, split into a follow-up issue and branch.
+- One PR per branch. PR title mirrors the conventional commit type and references the issue (`Closes #N`).
+- Delete the branch after merge.
+- Hotfixes follow the same flow against an `area:*` issue with `priority:p0`.
+
+A branch without a tracking issue is rejected at review.
+
 ## Required Fields for New Work
 
 Every issue must include:
@@ -86,6 +99,10 @@ CODEOWNERS is defined in `.github/CODEOWNERS` to formalize ownership on critical
   - `area:sdk`
   - `area:cli`
   - `area:docs`
+  - `area:bindings`
+  - `area:bench`
+  - `area:integrations`
+  - `area:observability`
 
 ## Cadence
 

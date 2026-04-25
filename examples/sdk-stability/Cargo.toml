@@ -1,0 +1,16 @@
+[package]
+name = "sdk-stability-example"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+rango-sdk = { path = "../../crates/sdk-rust" }
+rango-storage = { path = "../../crates/storage" }
+rango-oplog = { path = "../../crates/oplog" }
+rango-types = { path = "../../crates/types" }
+bson = { workspace = true }
+
+[dependencies.tempfile]
+version = "3"

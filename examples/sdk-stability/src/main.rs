@@ -6,16 +6,14 @@
 ///
 /// This example is used in CI to gate breaking changes. External products relying on
 /// the Rango SDK should be able to compile and run this code across minor versions.
-
 use bson::doc;
 use rango_oplog::FileOplog;
 use rango_sdk::{
-    ConsoleProgress, Document, NoOpProgress, RangoClient,
-    RetrievalCandidate, RetrievalCapabilityRequest, RetrievalCapabilityResponse,
-    RetrievalSource, RetrievalStatus, RankingSignals,
+    ConsoleProgress, Document, NoOpProgress, RangoClient, RankingSignals, RetrievalCandidate,
+    RetrievalCapabilityRequest, RetrievalCapabilityResponse, RetrievalSource, RetrievalStatus,
 };
-use rango_types::RangoError;
 use rango_storage::RedbStorage;
+use rango_types::RangoError;
 use std::sync::Arc;
 use tempfile::TempDir;
 

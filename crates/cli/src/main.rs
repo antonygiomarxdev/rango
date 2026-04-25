@@ -436,7 +436,9 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
 
     // Check metadata
     println!("\nMetadata Check");
-    let id2 = client.__engine().insert_one(&coll, doc! { "name": "doctor" })?;
+    let id2 = client
+        .__engine()
+        .insert_one(&coll, doc! { "name": "doctor" })?;
     let doc = client.__engine().find_one(&coll, &id2)?.unwrap();
     let has_rev = doc.data.contains_key("_rev");
     let has_updated_at = doc.data.contains_key("_updated_at");

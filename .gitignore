@@ -48,3 +48,6 @@ cobertura.xml
 
 # Benchmark baselines (machine-specific)
 criterion/
+
+# Local Claude Code settings (per-developer, never commit)
+.claude/

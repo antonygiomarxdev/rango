@@ -297,7 +297,7 @@ fn run_benchmarks(count: usize) -> Result<()> {
     let start = Instant::now();
     for i in 0..count {
         let doc = doc! { "index": i as i64, "name": format!("user-{}", i) };
-        client.engine.insert_one(&coll, doc)?;
+        client.__engine().insert_one(&coll, doc)?;
     }
     let insert_duration = start.elapsed();
     let insert_rate = count as f64 / insert_duration.as_secs_f64();
@@ -307,7 +307,7 @@ fn run_benchmarks(count: usize) -> Result<()> {
     // Find by _id benchmark
     println!("\nFind-by-ID Benchmark");
     let ids: Vec<rango_types::DocumentId> = client
-        .engine
+        .__engine()
         .find_many(&coll)?
         .filter_map(|r: Result<rango_types::RangoDocument, rango_types::RangoError>| r.ok())
         .take(1000)
@@ -316,7 +316,7 @@ fn run_benchmarks(count: usize) -> Result<()> {
 
     let start = Instant::now();
     for id in &ids {
-        let _ = client.engine.find_one(&coll, id)?;
+        let _ = client.__engine().find_one(&coll, id)?;
     }
     let find_duration = start.elapsed();
     let find_rate = ids.len() as f64 / find_duration.as_secs_f64();
@@ -330,7 +330,7 @@ fn run_benchmarks(count: usize) -> Result<()> {
     // Filter benchmark
     println!("\nFilter Benchmark (find by field)");
     let start = Instant::now();
-    let cursor = client.engine.find(
+    let cursor = client.__engine().find(
         &coll,
         &doc! { "index": { "$gte": (count / 2) as i64 } },
         None,
@@ -417,27 +417,29 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     // Basic operations test
     println!("\nOperations Check");
     let coll = CollectionName::new("__doctor_test");
-    let id = client.engine.insert_one(&coll, doc! { "test": true })?;
+    let id = client.__engine().insert_one(&coll, doc! { "test": true })?;
     println!("  [OK] Insert works");
 
-    let found = client.engine.find_one(&coll, &id)?;
+    let found = client.__engine().find_one(&coll, &id)?;
     assert!(found.is_some());
     println!("  [OK] Find-by-ID works");
 
     let updated = client
-        .engine
+        .__engine()
         .update_one(&coll, &id, doc! { "$set": { "test": false } })?;
     assert!(updated);
     println!("  [OK] Update works");
 
-    let deleted = client.engine.delete_one(&coll, &id)?;
+    let deleted = client.__engine().delete_one(&coll, &id)?;
     assert!(deleted);
     println!("  [OK] Delete (tombstone) works");
 
     // Check metadata
     println!("\nMetadata Check");
-    let id2 = client.engine.insert_one(&coll, doc! { "name": "doctor" })?;
-    let doc = client.engine.find_one(&coll, &id2)?.unwrap();
+    let id2 = client
+        .__engine()
+        .insert_one(&coll, doc! { "name": "doctor" })?;
+    let doc = client.__engine().find_one(&coll, &id2)?.unwrap();
     let has_rev = doc.data.contains_key("_rev");
     let has_updated_at = doc.data.contains_key("_updated_at");
     let has_source_node = doc.data.contains_key("_source_node");
@@ -459,11 +461,11 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     }
 
     // Cleanup test collection
-    let _ = client.engine.delete_one(&coll, &id2);
+    let _ = client.__engine().delete_one(&coll, &id2);
 
     // Show metrics
     println!("\nMetrics Snapshot");
-    let metrics = client.engine.metrics().snapshot();
+    let metrics = client.__engine().metrics().snapshot();
     println!("  Inserts: {}", metrics.inserts);
     println!("  Finds: {}", metrics.finds);
     println!("  Updates: {}", metrics.updates);

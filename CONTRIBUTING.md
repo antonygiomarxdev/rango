@@ -74,6 +74,17 @@ cargo deny check
 - `unsafe` blocks require a `// SAFETY:` comment explaining the invariant
 - Public items must have doc comments (`///`)
 
+### SDK Stability and Versioning
+
+Changes to `crates/sdk-rust` must adhere to the SDK stability contract documented in [`docs/reference/sdk-stability.md`](docs/reference/sdk-stability.md).
+
+**Key rules:**
+- SDK follows SemVer: patch for bug fixes, minor for new stable APIs, major for breaking changes
+- Breaking changes require a 2-minor-version deprecation period with `#[deprecated]` attributes
+- Experimental items must be marked `#[doc(hidden)]` and documented in the stability guide
+- The `examples/sdk-stability` example serves as a compile-time gate — if your SDK change breaks this example, the change is breaking and must follow the stability policy
+- When modifying public SDK types or methods, verify the example still compiles: `cargo build -p sdk-stability-example`
+
 ### Design Principles
 - **Traits over concrete types** — new storage backends, transports, etc. must implement the existing trait
 - **No premature optimization** — profile first, then optimize with a benchmark proving the gain

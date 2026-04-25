@@ -40,6 +40,24 @@ RANGO_SYNC_URL=http://localhost:8080
 RANGO_SYNC_TOKEN=dev-token
 ```
 
+## CI Validation
+
+Every pull request runs `integration-openclaw` to validate that the memory contract hasn't drifted and that the SDK surface remains compatible. This smoke test exercises the locked Rango SDK surface against the baseline contract, ensuring that write, read, and promotion paths work correctly for all four collections (`agent_state`, `task_state`, `episodes`, `facts`). If the test fails, either the contract changed without a corresponding fixture update, or the SDK API was modified in a breaking way.
+
+To intentionally update the contract fixture after modifying the memory contract, compute and update the SHA-256 hash fixture:
+
+```bash
+# On Linux/macOS:
+sha256sum docs/integrations/openclaw-memory-contract.json | cut -d' ' -f1 > examples/openclaw-smoke/contract.sha256
+
+# On Windows (PowerShell):
+Get-FileHash -Path docs/integrations/openclaw-memory-contract.json -Algorithm SHA256 | Select-Object -ExpandProperty Hash | Out-File -NoNewline examples/openclaw-smoke/contract.sha256
+```
+
+Commit the updated hash with the contract change. Note that contract changes require an ADR (see `docs/adr/`).
+
+The smoke test uses only the locked and stable SDK surface documented in [`docs/reference/sdk-stability.md`](../reference/sdk-stability.md).
+
 ## Memory contract
 
 Use [openclaw-memory-contract.json](openclaw-memory-contract.json) as the baseline schema contract.

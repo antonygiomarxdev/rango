@@ -37,6 +37,8 @@ pub struct ServerState {
     pub cross_tenant_rejections: AtomicU64,
     pub control_plane: Arc<ControlPlane>,
     containment: Mutex<HashMap<(String, String), ContainmentState>>,
+    scoped_latest_checkpoint_index: Mutex<HashMap<(String, String), u64>>,
+    scoped_write_id_index: Mutex<HashMap<(String, String, String), u64>>,
     audit_counter: AtomicU64,
     retrieval_runtime: RetrievalRuntime,
 }
@@ -47,6 +49,8 @@ impl ServerState {
     }
 
     pub fn with_control_plane(oplog: Arc<dyn Oplog>, control_plane: Arc<ControlPlane>) -> Self {
+        let (scoped_latest_checkpoint_index, scoped_write_id_index) =
+            build_scoped_indexes(oplog.as_ref());
         Self {
             oplog,
             tokens: Mutex::new(HashMap::new()),
@@ -54,6 +58,8 @@ impl ServerState {
             cross_tenant_rejections: AtomicU64::new(0),
             control_plane,
             containment: Mutex::new(HashMap::new()),
+            scoped_latest_checkpoint_index: Mutex::new(scoped_latest_checkpoint_index),
+            scoped_write_id_index: Mutex::new(scoped_write_id_index),
             audit_counter: AtomicU64::new(0),
             retrieval_runtime: RetrievalRuntime::fallback_only(),
         }
@@ -180,12 +186,428 @@ impl ServerState {
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
-            mutation,
+            mutation: mutation.clone(),
             origin: OplogOrigin::Local,
             applied: true,
             snapshot_anchor: None,
         };
-        self.oplog.append(entry)
+        let seq = self.oplog.append(entry)?;
+        self.index_mutation(seq, &mutation);
+        Ok(seq)
+    }
+
+    fn scoped_latest_seq(&self, tenant_id: &str, namespace: &str) -> u64 {
+        let key = (tenant_id.to_string(), namespace.to_string());
+        self.scoped_latest_checkpoint_index
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn lookup_scoped_write_id_seq(
+        &self,
+        tenant_id: &str,
+        namespace: &str,
+        write_id: &str,
+    ) -> Option<u64> {
+        let key = (
+            tenant_id.to_string(),
+            namespace.to_string(),
+            write_id.to_string(),
+        );
+        self.scoped_write_id_index
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+    }
+
+    fn index_mutation(&self, seq: u64, mutation: &Mutation) {
+        let tenant_id = mutation.metadata.tenant_id.clone();
+        let namespace = mutation.metadata.namespace.clone();
+        self.scoped_latest_checkpoint_index
+            .lock()
+            .unwrap()
+            .entry((tenant_id.clone(), namespace.clone()))
+            .and_modify(|current| *current = (*current).max(seq))
+            .or_insert(seq);
+        self.scoped_write_id_index
+            .lock()
+            .unwrap()
+            .insert((tenant_id, namespace, mutation.write_id.clone()), seq);
+    }
+
+    fn process_push(
+        &self,
+        req: PushRequest,
+        principal: AuthPrincipal,
+    ) -> Result<PushResponse, StatusCode> {
+        if req.node_id != principal.node_id {
+            self.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
+            let new_checkpoint = scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                .unwrap_or_else(|_| Checkpoint::initial());
+            return Ok(PushResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint,
+                rejected_non_owner_count: 1,
+                rejected_cross_tenant_count: 0,
+                audit: vec![GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: "node_mismatch".to_string(),
+                }],
+            });
+        }
+
+        if req.tenant_id != principal.tenant_id {
+            self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "tenant_mismatch".to_string(),
+            };
+            let _ = self.persist_audit_evidence(
+                "write",
+                &req.tenant_id,
+                &req.namespace,
+                None,
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+            let new_checkpoint = scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                .unwrap_or_else(|_| Checkpoint::initial());
+            return Ok(PushResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint,
+                rejected_non_owner_count: 0,
+                rejected_cross_tenant_count: 1,
+                audit: vec![decision],
+            });
+        }
+
+        let mut accepted_seqs = Vec::new();
+        let mut rejected_cross_tenant_count = 0u64;
+        let mut audit = Vec::new();
+        for mutation in req.mutations {
+            if let Some(containment) = self.containment_gate(&req.tenant_id, &req.namespace) {
+                let _ = self.persist_audit_evidence(
+                    "write",
+                    &req.tenant_id,
+                    &req.namespace,
+                    Some(&mutation.write_id),
+                    &containment,
+                );
+                self.register_decision_outcome(&req.tenant_id, &req.namespace, &containment);
+                audit.push(containment);
+                continue;
+            }
+
+            if let Err(err) = mutation.validate_metadata() {
+                let decision = GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: format!("invalid_metadata:{err}"),
+                };
+                let _ = self.persist_audit_evidence(
+                    "write",
+                    &req.tenant_id,
+                    &req.namespace,
+                    Some(&mutation.write_id),
+                    &decision,
+                );
+                self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+                audit.push(decision);
+                continue;
+            }
+
+            if mutation.metadata.tenant_id != req.tenant_id
+                || mutation.metadata.namespace != req.namespace
+            {
+                self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+                rejected_cross_tenant_count += 1;
+                let decision = GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: "cross_tenant_or_namespace_mutation".to_string(),
+                };
+                let _ = self.persist_audit_evidence(
+                    "write",
+                    &req.tenant_id,
+                    &req.namespace,
+                    Some(&mutation.write_id),
+                    &decision,
+                );
+                self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+                audit.push(decision);
+                continue;
+            }
+
+            let write_ctx = WriteContext {
+                tenant_id: req.tenant_id.clone(),
+                namespace: req.namespace.clone(),
+                actor: mutation.metadata.actor.clone(),
+                source: mutation.metadata.source.clone(),
+                tier: MemoryTier::State,
+            };
+            let payload = WritePayload::StateWithTrust {
+                document: mutation.patch.clone().unwrap_or_else(Document::new),
+                trust_score: mutation.metadata.trust_score,
+            };
+            let decision = self
+                .control_plane
+                .write_path(&write_ctx, &payload)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let decision = normalize_write_decision(decision);
+            let _ = self.persist_audit_evidence(
+                "write",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&mutation.write_id),
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+
+            if ControlPlane::is_reject(&decision) {
+                audit.push(decision);
+                continue;
+            }
+
+            let seq = append_mutation(self, mutation, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            accepted_seqs.push(seq);
+            audit.push(decision);
+        }
+
+        let new_checkpoint = scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        Ok(PushResponse {
+            accepted_seqs,
+            new_checkpoint,
+            rejected_non_owner_count: 0,
+            rejected_cross_tenant_count,
+            audit,
+        })
+    }
+
+    fn process_pull(
+        &self,
+        req: PullRequest,
+        principal: AuthPrincipal,
+        read_tier: MemoryTier,
+    ) -> Result<PullResponse, StatusCode> {
+        if principal.node_id != req.node_id || principal.tenant_id != req.tenant_id {
+            return Err(StatusCode::FORBIDDEN);
+        }
+
+        let entries = self
+            .oplog
+            .read_since(req.since_checkpoint.0 + 1, 1000)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let scoped_entries: Vec<OplogEntry> = entries
+            .into_iter()
+            .filter(|e| {
+                e.mutation.metadata.tenant_id == req.tenant_id
+                    && e.mutation.metadata.namespace == req.namespace
+                    && e.mutation.metadata.r#type != "governance_audit"
+                    && mutation_visible_for_tier(&e.mutation, read_tier)
+            })
+            .collect();
+
+        let candidates: Vec<Document> = scoped_entries
+            .iter()
+            .filter_map(add_candidate_identity)
+            .collect();
+        let read_request = ReadRequest {
+            tenant_id: req.tenant_id.clone(),
+            namespace: req.namespace.clone(),
+            tier: read_tier,
+            limit: 1000,
+        };
+        let (read_decision, filtered_candidates) = self
+            .control_plane
+            .read_path(&read_request, candidates)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let read_decision = self
+            .containment_gate(&req.tenant_id, &req.namespace)
+            .unwrap_or(read_decision);
+        let _ = self.persist_audit_evidence(
+            "read",
+            &req.tenant_id,
+            &req.namespace,
+            None,
+            &read_decision,
+        );
+        self.register_decision_outcome(&req.tenant_id, &req.namespace, &read_decision);
+        if ControlPlane::is_reject(&read_decision) {
+            return Ok(PullResponse {
+                mutations: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                audit: vec![read_decision],
+            });
+        }
+
+        let mut allowed_identity_counts: HashMap<(u64, String), usize> = HashMap::new();
+        for candidate in &filtered_candidates {
+            let Some(key) = candidate_identity(candidate) else {
+                continue;
+            };
+            *allowed_identity_counts.entry(key).or_insert(0) += 1;
+        }
+
+        let mut mutations: Vec<Mutation> = Vec::new();
+        for entry in scoped_entries {
+            if entry.mutation.patch.is_none() {
+                continue;
+            }
+            let key = (entry.seq, entry.mutation.write_id.clone());
+            let Some(remaining) = allowed_identity_counts.get_mut(&key) else {
+                continue;
+            };
+            if *remaining > 0 {
+                let mutation = annotate_mutation_for_read_tier(entry.mutation, read_tier);
+                mutations.push(mutation);
+                *remaining -= 1;
+            }
+        }
+        let new_checkpoint = scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        Ok(PullResponse {
+            mutations,
+            new_checkpoint,
+            audit: vec![read_decision],
+        })
+    }
+
+    fn process_promote(
+        &self,
+        req: PromoteRequest,
+        principal: AuthPrincipal,
+    ) -> Result<PromoteResponse, StatusCode> {
+        if req.node_id != principal.node_id {
+            self.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
+            return Ok(PromoteResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                rejected_count: 1,
+                audit: vec![GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: "node_mismatch".to_string(),
+                }],
+            });
+        }
+
+        if req.tenant_id != principal.tenant_id {
+            self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            return Ok(PromoteResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                rejected_count: 1,
+                audit: vec![GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: "tenant_mismatch".to_string(),
+                }],
+            });
+        }
+
+        if let Err(err) = req.mutation.validate_metadata() {
+            return Ok(PromoteResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                rejected_count: 1,
+                audit: vec![GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: format!("invalid_metadata:{err}"),
+                }],
+            });
+        }
+
+        if req.mutation.metadata.tenant_id != req.tenant_id
+            || req.mutation.metadata.namespace != req.namespace
+        {
+            self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            return Ok(PromoteResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                rejected_count: 1,
+                audit: vec![GovernanceDecision {
+                    decision: PolicyDecision::Reject,
+                    reason: "cross_tenant_or_namespace_mutation".to_string(),
+                }],
+            });
+        }
+
+        let promotion_request = CorePromotionRequest {
+            tenant_id: req.tenant_id.clone(),
+            namespace: req.namespace.clone(),
+            from: req.from_tier,
+            to: req.to_tier,
+            candidate_id: req.candidate_id.clone(),
+        };
+        let semantic_path_decision = ControlPlane::validate_semantic_promotion(&promotion_request);
+        if ControlPlane::is_reject(&semantic_path_decision) {
+            let _ = self.persist_audit_evidence(
+                "promotion",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&req.mutation.write_id),
+                &semantic_path_decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &semantic_path_decision);
+            return Ok(PromoteResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                rejected_count: 1,
+                audit: vec![semantic_path_decision],
+            });
+        }
+
+        let payload = WritePayload::StateWithTrust {
+            document: req.mutation.patch.clone().unwrap_or_else(Document::new),
+            trust_score: req.mutation.metadata.trust_score,
+        };
+
+        let (decision, _) = self
+            .control_plane
+            .promotion_path(&promotion_request, &payload)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let decision = self
+            .containment_gate(&req.tenant_id, &req.namespace)
+            .unwrap_or(decision);
+        let _ = self.persist_audit_evidence(
+            "promotion",
+            &req.tenant_id,
+            &req.namespace,
+            Some(&req.mutation.write_id),
+            &decision,
+        );
+        self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+
+        if !matches!(decision.decision, PolicyDecision::Allow) {
+            return Ok(PromoteResponse {
+                accepted_seqs: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                rejected_count: 1,
+                audit: vec![decision],
+            });
+        }
+
+        let seq = append_mutation(self, req.mutation, &req.tenant_id, &req.namespace)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(PromoteResponse {
+            accepted_seqs: vec![seq],
+            new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            rejected_count: 0,
+            audit: vec![decision],
+        })
     }
 }
 
@@ -194,23 +616,46 @@ fn scoped_latest_checkpoint(
     tenant_id: &str,
     namespace: &str,
 ) -> Result<Checkpoint, RangoError> {
-    let latest = state.oplog.latest_seq()?;
-    if latest == 0 {
+    let scoped_latest = state.scoped_latest_seq(tenant_id, namespace);
+    if scoped_latest == 0 {
         return Ok(Checkpoint::initial());
     }
-
-    let entries = state.oplog.read_since(1, latest as usize + 1)?;
-    let scoped_latest = entries
-        .into_iter()
-        .filter(|entry| {
-            entry.mutation.metadata.tenant_id == tenant_id
-                && entry.mutation.metadata.namespace == namespace
-        })
-        .map(|entry| entry.seq)
-        .max()
-        .unwrap_or(0);
-
     Ok(Checkpoint(scoped_latest))
+}
+
+fn build_scoped_indexes(
+    oplog: &dyn Oplog,
+) -> (
+    HashMap<(String, String), u64>,
+    HashMap<(String, String, String), u64>,
+) {
+    let mut scoped_latest = HashMap::new();
+    let mut scoped_write_ids = HashMap::new();
+
+    let latest = match oplog.latest_seq() {
+        Ok(value) => value,
+        Err(_) => return (scoped_latest, scoped_write_ids),
+    };
+    if latest == 0 {
+        return (scoped_latest, scoped_write_ids);
+    }
+
+    let entries = match oplog.read_since(1, latest as usize + 1) {
+        Ok(entries) => entries,
+        Err(_) => return (scoped_latest, scoped_write_ids),
+    };
+
+    for entry in entries {
+        let tenant_id = entry.mutation.metadata.tenant_id.clone();
+        let namespace = entry.mutation.metadata.namespace.clone();
+        scoped_latest
+            .entry((tenant_id.clone(), namespace.clone()))
+            .and_modify(|current| *current = (*current).max(entry.seq))
+            .or_insert(entry.seq);
+        scoped_write_ids.insert((tenant_id, namespace, entry.mutation.write_id), entry.seq);
+    }
+
+    (scoped_latest, scoped_write_ids)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -285,148 +730,8 @@ pub async fn handle_push(
     // Validate auth token
     let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
     let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
-
-    if req.node_id != principal.node_id {
-        state.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
-        let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-            .unwrap_or_else(|_| Checkpoint::initial());
-        return Ok(Json(PushResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint,
-            rejected_non_owner_count: 1,
-            rejected_cross_tenant_count: 0,
-            audit: vec![GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: "node_mismatch".to_string(),
-            }],
-        }));
-    }
-
-    if req.tenant_id != principal.tenant_id {
-        state
-            .cross_tenant_rejections
-            .fetch_add(1, Ordering::Relaxed);
-        let decision = GovernanceDecision {
-            decision: PolicyDecision::Reject,
-            reason: "tenant_mismatch".to_string(),
-        };
-        let _ =
-            state.persist_audit_evidence("write", &req.tenant_id, &req.namespace, None, &decision);
-        state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
-        let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-            .unwrap_or_else(|_| Checkpoint::initial());
-        return Ok(Json(PushResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint,
-            rejected_non_owner_count: 0,
-            rejected_cross_tenant_count: 1,
-            audit: vec![decision],
-        }));
-    }
-
-    let mut accepted_seqs = Vec::new();
-    let mut rejected_cross_tenant_count = 0u64;
-    let mut audit = Vec::new();
-    for mutation in req.mutations {
-        if let Some(containment) = state.containment_gate(&req.tenant_id, &req.namespace) {
-            let _ = state.persist_audit_evidence(
-                "write",
-                &req.tenant_id,
-                &req.namespace,
-                Some(&mutation.write_id),
-                &containment,
-            );
-            state.register_decision_outcome(&req.tenant_id, &req.namespace, &containment);
-            audit.push(containment);
-            continue;
-        }
-
-        if let Err(err) = mutation.validate_metadata() {
-            let decision = GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: format!("invalid_metadata:{err}"),
-            };
-            let _ = state.persist_audit_evidence(
-                "write",
-                &req.tenant_id,
-                &req.namespace,
-                Some(&mutation.write_id),
-                &decision,
-            );
-            state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
-            audit.push(decision);
-            continue;
-        }
-
-        if mutation.metadata.tenant_id != req.tenant_id
-            || mutation.metadata.namespace != req.namespace
-        {
-            state
-                .cross_tenant_rejections
-                .fetch_add(1, Ordering::Relaxed);
-            rejected_cross_tenant_count += 1;
-            let decision = GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: "cross_tenant_or_namespace_mutation".to_string(),
-            };
-            let _ = state.persist_audit_evidence(
-                "write",
-                &req.tenant_id,
-                &req.namespace,
-                Some(&mutation.write_id),
-                &decision,
-            );
-            state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
-            audit.push(decision);
-            continue;
-        }
-
-        let write_ctx = WriteContext {
-            tenant_id: req.tenant_id.clone(),
-            namespace: req.namespace.clone(),
-            actor: mutation.metadata.actor.clone(),
-            source: mutation.metadata.source.clone(),
-            tier: MemoryTier::State,
-        };
-        let payload = WritePayload::StateWithTrust {
-            document: mutation.patch.clone().unwrap_or_else(Document::new),
-            trust_score: mutation.metadata.trust_score,
-        };
-        let decision = state
-            .control_plane
-            .write_path(&write_ctx, &payload)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let decision = normalize_write_decision(decision);
-        let _ = state.persist_audit_evidence(
-            "write",
-            &req.tenant_id,
-            &req.namespace,
-            Some(&mutation.write_id),
-            &decision,
-        );
-        state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
-
-        if ControlPlane::is_reject(&decision) {
-            audit.push(decision);
-            continue;
-        }
-
-        let seq = append_mutation(&state, mutation, &req.tenant_id, &req.namespace)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        accepted_seqs.push(seq);
-        audit.push(decision);
-    }
-
-    let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(PushResponse {
-        accepted_seqs,
-        new_checkpoint,
-        rejected_non_owner_count: 0,
-        rejected_cross_tenant_count,
-        audit,
-    }))
+    let response = state.process_push(req, principal)?;
+    Ok(Json(response))
 }
 
 #[instrument(skip(state, req))]
@@ -447,86 +752,9 @@ pub async fn handle_pull(
     // Validate auth token
     let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
     let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
-    if principal.node_id != req.node_id || principal.tenant_id != req.tenant_id {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let entries = state
-        .oplog
-        .read_since(req.since_checkpoint.0 + 1, 1000)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
     let read_tier = parse_read_tier(headers.get("X-Rango-Read-Tier"));
-    let scoped_entries: Vec<OplogEntry> = entries
-        .into_iter()
-        .filter(|e| {
-            e.mutation.metadata.tenant_id == req.tenant_id
-                && e.mutation.metadata.namespace == req.namespace
-                && e.mutation.metadata.r#type != "governance_audit"
-                && mutation_visible_for_tier(&e.mutation, read_tier)
-        })
-        .collect();
-
-    let candidates: Vec<Document> = scoped_entries
-        .iter()
-        .filter_map(add_candidate_identity)
-        .collect();
-    let read_request = ReadRequest {
-        tenant_id: req.tenant_id.clone(),
-        namespace: req.namespace.clone(),
-        tier: read_tier,
-        limit: 1000,
-    };
-    let (read_decision, filtered_candidates) = state
-        .control_plane
-        .read_path(&read_request, candidates)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let read_decision = state
-        .containment_gate(&req.tenant_id, &req.namespace)
-        .unwrap_or(read_decision);
-    let _ =
-        state.persist_audit_evidence("read", &req.tenant_id, &req.namespace, None, &read_decision);
-    state.register_decision_outcome(&req.tenant_id, &req.namespace, &read_decision);
-    if ControlPlane::is_reject(&read_decision) {
-        return Ok(Json(PullResponse {
-            mutations: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            audit: vec![read_decision],
-        }));
-    }
-
-    let mut allowed_identity_counts: HashMap<(u64, String), usize> = HashMap::new();
-    for candidate in &filtered_candidates {
-        let Some(key) = candidate_identity(candidate) else {
-            continue;
-        };
-        *allowed_identity_counts.entry(key).or_insert(0) += 1;
-    }
-
-    let mut mutations: Vec<Mutation> = Vec::new();
-    for entry in scoped_entries {
-        if entry.mutation.patch.is_none() {
-            continue;
-        }
-        let key = (entry.seq, entry.mutation.write_id.clone());
-        let Some(remaining) = allowed_identity_counts.get_mut(&key) else {
-            continue;
-        };
-        if *remaining > 0 {
-            let mutation = annotate_mutation_for_read_tier(entry.mutation, read_tier);
-            mutations.push(mutation);
-            *remaining -= 1;
-        }
-    }
-    let new_checkpoint = scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(PullResponse {
-        mutations,
-        new_checkpoint,
-        audit: vec![read_decision],
-    }))
+    let response = state.process_pull(req, principal, read_tier)?;
+    Ok(Json(response))
 }
 
 #[instrument(skip(state, req))]
@@ -633,134 +861,8 @@ pub async fn handle_promote(
 
     let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
     let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
-
-    if req.node_id != principal.node_id {
-        state.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
-        return Ok(Json(PromoteResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            rejected_count: 1,
-            audit: vec![GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: "node_mismatch".to_string(),
-            }],
-        }));
-    }
-
-    if req.tenant_id != principal.tenant_id {
-        state
-            .cross_tenant_rejections
-            .fetch_add(1, Ordering::Relaxed);
-        return Ok(Json(PromoteResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            rejected_count: 1,
-            audit: vec![GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: "tenant_mismatch".to_string(),
-            }],
-        }));
-    }
-
-    if let Err(err) = req.mutation.validate_metadata() {
-        return Ok(Json(PromoteResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            rejected_count: 1,
-            audit: vec![GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: format!("invalid_metadata:{err}"),
-            }],
-        }));
-    }
-
-    if req.mutation.metadata.tenant_id != req.tenant_id
-        || req.mutation.metadata.namespace != req.namespace
-    {
-        state
-            .cross_tenant_rejections
-            .fetch_add(1, Ordering::Relaxed);
-        return Ok(Json(PromoteResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            rejected_count: 1,
-            audit: vec![GovernanceDecision {
-                decision: PolicyDecision::Reject,
-                reason: "cross_tenant_or_namespace_mutation".to_string(),
-            }],
-        }));
-    }
-
-    let promotion_request = CorePromotionRequest {
-        tenant_id: req.tenant_id.clone(),
-        namespace: req.namespace.clone(),
-        from: req.from_tier,
-        to: req.to_tier,
-        candidate_id: req.candidate_id.clone(),
-    };
-    let semantic_path_decision = ControlPlane::validate_semantic_promotion(&promotion_request);
-    if ControlPlane::is_reject(&semantic_path_decision) {
-        let _ = state.persist_audit_evidence(
-            "promotion",
-            &req.tenant_id,
-            &req.namespace,
-            Some(&req.mutation.write_id),
-            &semantic_path_decision,
-        );
-        state.register_decision_outcome(&req.tenant_id, &req.namespace, &semantic_path_decision);
-        return Ok(Json(PromoteResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            rejected_count: 1,
-            audit: vec![semantic_path_decision],
-        }));
-    }
-
-    let payload = WritePayload::StateWithTrust {
-        document: req.mutation.patch.clone().unwrap_or_else(Document::new),
-        trust_score: req.mutation.metadata.trust_score,
-    };
-
-    let (decision, _) = state
-        .control_plane
-        .promotion_path(&promotion_request, &payload)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let decision = state
-        .containment_gate(&req.tenant_id, &req.namespace)
-        .unwrap_or(decision);
-    let _ = state.persist_audit_evidence(
-        "promotion",
-        &req.tenant_id,
-        &req.namespace,
-        Some(&req.mutation.write_id),
-        &decision,
-    );
-    state.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
-
-    if !matches!(decision.decision, PolicyDecision::Allow) {
-        return Ok(Json(PromoteResponse {
-            accepted_seqs: Vec::new(),
-            new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-            rejected_count: 1,
-            audit: vec![decision],
-        }));
-    }
-
-    let seq = append_mutation(&state, req.mutation, &req.tenant_id, &req.namespace)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(PromoteResponse {
-        accepted_seqs: vec![seq],
-        new_checkpoint: scoped_latest_checkpoint(&state, &req.tenant_id, &req.namespace)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        rejected_count: 0,
-        audit: vec![decision],
-    }))
+    let response = state.process_promote(req, principal)?;
+    Ok(Json(response))
 }
 
 const IDENTITY_SEQ_FIELD: &str = "__rango_candidate_seq";
@@ -781,19 +883,14 @@ fn append_mutation(
         ));
     }
 
-    // Simple idempotency check: deduplicate by write_id
-    // Dedup key is tenant + namespace + write_id for isolation safety.
-    let latest = state.oplog.latest_seq()?;
-    let all = state.oplog.read_since(1, latest as usize + 1)?;
-    for entry in all {
-        if entry.mutation.write_id == mutation.write_id
-            && entry.mutation.metadata.tenant_id == tenant_id
-            && entry.mutation.metadata.namespace == namespace
-        {
-            return Ok(entry.seq); // Already exists
-        }
+    // Idempotency key is tenant + namespace + write_id for isolation safety.
+    if let Some(existing_seq) =
+        state.lookup_scoped_write_id_seq(tenant_id, namespace, &mutation.write_id)
+    {
+        return Ok(existing_seq);
     }
 
+    let mutation_for_index = mutation.clone();
     let entry = OplogEntry {
         seq: 0,
         timestamp: bson::DateTime::now(),
@@ -802,7 +899,9 @@ fn append_mutation(
         applied: false,
         snapshot_anchor: None,
     };
-    state.oplog.append(entry)
+    let seq = state.oplog.append(entry)?;
+    state.index_mutation(seq, &mutation_for_index);
+    Ok(seq)
 }
 
 fn add_candidate_identity(entry: &OplogEntry) -> Option<Document> {

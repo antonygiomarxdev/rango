@@ -43,6 +43,19 @@ jobs:
       - run: cargo clippy --workspace --all-features
 
   # ---------------------------------------------------------------------------
+  # SDK stability gate (compile-time integration test)
+  # ---------------------------------------------------------------------------
+  sdk-stability:
+    name: SDK Stability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p sdk-stability-example
+      - run: cargo run -p sdk-stability-example
+
+  # ---------------------------------------------------------------------------
   # Tests (matrix: stable + MSRV)
   # ---------------------------------------------------------------------------
   test:

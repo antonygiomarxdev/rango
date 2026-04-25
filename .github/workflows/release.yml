@@ -146,6 +146,7 @@ jobs:
             echo "prerelease=false" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "notes_mode=versioned" >> $GITHUB_OUTPUT
+            echo "channel_tags=latest" >> $GITHUB_OUTPUT
           else
             VERSION="$(grep -m1 '^version = "' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')"
             if [[ -z "${VERSION}" ]]; then
@@ -158,6 +159,7 @@ jobs:
             echo "prerelease=true" >> $GITHUB_OUTPUT
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "notes_mode=prerelease" >> $GITHUB_OUTPUT
+            echo "channel_tags=nightly,beta" >> $GITHUB_OUTPUT
           fi
 
       - name: Extract changelog for this version
@@ -202,3 +204,12 @@ jobs:
           draft: false
           prerelease: ${{ steps.meta.outputs.prerelease }}
           files: artifacts/**/*
+
+      - name: Update channel tags
+        run: |
+          IFS=',' read -ra CHANNELS <<< "${{ steps.meta.outputs.channel_tags }}"
+          for channel in "${CHANNELS[@]}"; do
+            if [[ -n "${channel}" ]]; then
+              git push --force origin "${GITHUB_SHA}:refs/tags/${channel}"
+            fi
+          done

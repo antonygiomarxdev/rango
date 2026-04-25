@@ -10,11 +10,7 @@ fn doctor_passes_on_fresh_workspace() {
 
     // Initialize a fresh workspace
     let mut init_cmd = Command::cargo_bin("rango").expect("failed to get rango binary");
-    init_cmd
-        .arg("init")
-        .arg(workspace_path)
-        .assert()
-        .success();
+    init_cmd.arg("init").arg(workspace_path).assert().success();
 
     // Run doctor on the fresh workspace
     let mut doctor_cmd = Command::cargo_bin("rango").expect("failed to get rango binary");
@@ -34,11 +30,7 @@ fn doctor_fails_on_corrupt_workspace() {
 
     // Initialize a workspace
     let mut init_cmd = Command::cargo_bin("rango").expect("failed to get rango binary");
-    init_cmd
-        .arg("init")
-        .arg(workspace_path)
-        .assert()
-        .success();
+    init_cmd.arg("init").arg(workspace_path).assert().success();
 
     // Corrupt the data.redb file by truncating it
     let data_file = workspace_path.join("data.redb");

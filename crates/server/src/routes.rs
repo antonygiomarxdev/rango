@@ -37,6 +37,8 @@ pub struct ServerState {
     pub cross_tenant_rejections: AtomicU64,
     pub control_plane: Arc<ControlPlane>,
     containment: Mutex<HashMap<(String, String), ContainmentState>>,
+    scoped_latest_checkpoint_index: Mutex<HashMap<(String, String), u64>>,
+    scoped_write_id_index: Mutex<HashMap<(String, String, String), u64>>,
     audit_counter: AtomicU64,
     retrieval_runtime: RetrievalRuntime,
 }
@@ -47,6 +49,8 @@ impl ServerState {
     }
 
     pub fn with_control_plane(oplog: Arc<dyn Oplog>, control_plane: Arc<ControlPlane>) -> Self {
+        let (scoped_latest_checkpoint_index, scoped_write_id_index) =
+            build_scoped_indexes(oplog.as_ref());
         Self {
             oplog,
             tokens: Mutex::new(HashMap::new()),
@@ -54,6 +58,8 @@ impl ServerState {
             cross_tenant_rejections: AtomicU64::new(0),
             control_plane,
             containment: Mutex::new(HashMap::new()),
+            scoped_latest_checkpoint_index: Mutex::new(scoped_latest_checkpoint_index),
+            scoped_write_id_index: Mutex::new(scoped_write_id_index),
             audit_counter: AtomicU64::new(0),
             retrieval_runtime: RetrievalRuntime::fallback_only(),
         }
@@ -180,12 +186,57 @@ impl ServerState {
         let entry = OplogEntry {
             seq: 0,
             timestamp: bson::DateTime::now(),
-            mutation,
+            mutation: mutation.clone(),
             origin: OplogOrigin::Local,
             applied: true,
             snapshot_anchor: None,
         };
-        self.oplog.append(entry)
+        let seq = self.oplog.append(entry)?;
+        self.index_mutation(seq, &mutation);
+        Ok(seq)
+    }
+
+    fn scoped_latest_seq(&self, tenant_id: &str, namespace: &str) -> u64 {
+        let key = (tenant_id.to_string(), namespace.to_string());
+        self.scoped_latest_checkpoint_index
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn lookup_scoped_write_id_seq(
+        &self,
+        tenant_id: &str,
+        namespace: &str,
+        write_id: &str,
+    ) -> Option<u64> {
+        let key = (
+            tenant_id.to_string(),
+            namespace.to_string(),
+            write_id.to_string(),
+        );
+        self.scoped_write_id_index
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+    }
+
+    fn index_mutation(&self, seq: u64, mutation: &Mutation) {
+        let tenant_id = mutation.metadata.tenant_id.clone();
+        let namespace = mutation.metadata.namespace.clone();
+        self.scoped_latest_checkpoint_index
+            .lock()
+            .unwrap()
+            .entry((tenant_id.clone(), namespace.clone()))
+            .and_modify(|current| *current = (*current).max(seq))
+            .or_insert(seq);
+        self.scoped_write_id_index
+            .lock()
+            .unwrap()
+            .insert((tenant_id, namespace, mutation.write_id.clone()), seq);
     }
 }
 
@@ -194,23 +245,46 @@ fn scoped_latest_checkpoint(
     tenant_id: &str,
     namespace: &str,
 ) -> Result<Checkpoint, RangoError> {
-    let latest = state.oplog.latest_seq()?;
-    if latest == 0 {
+    let scoped_latest = state.scoped_latest_seq(tenant_id, namespace);
+    if scoped_latest == 0 {
         return Ok(Checkpoint::initial());
     }
-
-    let entries = state.oplog.read_since(1, latest as usize + 1)?;
-    let scoped_latest = entries
-        .into_iter()
-        .filter(|entry| {
-            entry.mutation.metadata.tenant_id == tenant_id
-                && entry.mutation.metadata.namespace == namespace
-        })
-        .map(|entry| entry.seq)
-        .max()
-        .unwrap_or(0);
-
     Ok(Checkpoint(scoped_latest))
+}
+
+fn build_scoped_indexes(
+    oplog: &dyn Oplog,
+) -> (
+    HashMap<(String, String), u64>,
+    HashMap<(String, String, String), u64>,
+) {
+    let mut scoped_latest = HashMap::new();
+    let mut scoped_write_ids = HashMap::new();
+
+    let latest = match oplog.latest_seq() {
+        Ok(value) => value,
+        Err(_) => return (scoped_latest, scoped_write_ids),
+    };
+    if latest == 0 {
+        return (scoped_latest, scoped_write_ids);
+    }
+
+    let entries = match oplog.read_since(1, latest as usize + 1) {
+        Ok(entries) => entries,
+        Err(_) => return (scoped_latest, scoped_write_ids),
+    };
+
+    for entry in entries {
+        let tenant_id = entry.mutation.metadata.tenant_id.clone();
+        let namespace = entry.mutation.metadata.namespace.clone();
+        scoped_latest
+            .entry((tenant_id.clone(), namespace.clone()))
+            .and_modify(|current| *current = (*current).max(entry.seq))
+            .or_insert(entry.seq);
+        scoped_write_ids.insert((tenant_id, namespace, entry.mutation.write_id), entry.seq);
+    }
+
+    (scoped_latest, scoped_write_ids)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -781,19 +855,14 @@ fn append_mutation(
         ));
     }
 
-    // Simple idempotency check: deduplicate by write_id
-    // Dedup key is tenant + namespace + write_id for isolation safety.
-    let latest = state.oplog.latest_seq()?;
-    let all = state.oplog.read_since(1, latest as usize + 1)?;
-    for entry in all {
-        if entry.mutation.write_id == mutation.write_id
-            && entry.mutation.metadata.tenant_id == tenant_id
-            && entry.mutation.metadata.namespace == namespace
-        {
-            return Ok(entry.seq); // Already exists
-        }
+    // Idempotency key is tenant + namespace + write_id for isolation safety.
+    if let Some(existing_seq) =
+        state.lookup_scoped_write_id_seq(tenant_id, namespace, &mutation.write_id)
+    {
+        return Ok(existing_seq);
     }
 
+    let mutation_for_index = mutation.clone();
     let entry = OplogEntry {
         seq: 0,
         timestamp: bson::DateTime::now(),
@@ -802,7 +871,9 @@ fn append_mutation(
         applied: false,
         snapshot_anchor: None,
     };
-    state.oplog.append(entry)
+    let seq = state.oplog.append(entry)?;
+    state.index_mutation(seq, &mutation_for_index);
+    Ok(seq)
 }
 
 fn add_candidate_identity(entry: &OplogEntry) -> Option<Document> {

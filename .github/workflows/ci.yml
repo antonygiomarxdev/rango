@@ -56,6 +56,18 @@ jobs:
       - run: cargo run -p sdk-stability-example
 
   # ---------------------------------------------------------------------------
+  # OpenClaw integration gate (smoke test + contract drift detection)
+  # ---------------------------------------------------------------------------
+  integration-openclaw:
+    name: OpenClaw Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo run -p openclaw-smoke --locked
+
+  # ---------------------------------------------------------------------------
   # Tests (matrix: stable + MSRV)
   # ---------------------------------------------------------------------------
   test:

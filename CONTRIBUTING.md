@@ -85,6 +85,15 @@ Changes to `crates/sdk-rust` must adhere to the SDK stability contract documente
 - The `examples/sdk-stability` example serves as a compile-time gate — if your SDK change breaks this example, the change is breaking and must follow the stability policy
 - When modifying public SDK types or methods, verify the example still compiles: `cargo build -p sdk-stability-example`
 
+### Envelope Contract Changes
+
+Any change to the canonical envelope metadata contract in `crates/types/src/envelope.rs` (e.g., adding or removing fields from `GovernanceMetadata`, `RecordEnvelope`, etc.) **REQUIRES** concurrent updates to:
+
+1. **`rango doctor`** — the upgrade check in `crates/cli/src/main.rs` must be updated to validate the new/modified envelope fields.
+2. **Migration guide** — `docs/operations/migration-v0.0-to-v0.1.md` must document the change and any migration path for existing workspaces.
+
+Failure to update these will result in CI/review rejection. Envelope contract stability is critical for data durability and operational reliability.
+
 ### Design Principles
 - **Traits over concrete types** — new storage backends, transports, etc. must implement the existing trait
 - **No premature optimization** — profile first, then optimize with a benchmark proving the gain

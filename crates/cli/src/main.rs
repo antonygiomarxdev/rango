@@ -368,6 +368,32 @@ fn run_benchmarks(count: usize) -> Result<()> {
     Ok(())
 }
 
+struct DoctorReport {
+    errors: Vec<String>,
+    warnings: Vec<String>,
+}
+
+impl DoctorReport {
+    fn new() -> Self {
+        Self {
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn add_error(&mut self, msg: String) {
+        self.errors.push(msg);
+    }
+
+    fn add_warning(&mut self, msg: String) {
+        self.warnings.push(msg);
+    }
+
+    fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+}
+
 fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     use bson::doc;
     use rango_oplog::Oplog;
@@ -377,11 +403,14 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     println!("Rango Doctor");
     println!("{}", "=".repeat(50));
 
+    let mut report = DoctorReport::new();
+
     // Check workspace directory
     println!("\nStorage Check");
     if path.exists() {
         println!("  [OK] Workspace directory exists: {}", path.display());
     } else {
+        report.add_warning(format!("workspace directory not found: {}", path.display()));
         println!("  [WARN] Workspace directory not found: {}", path.display());
     }
 
@@ -406,72 +435,83 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     let client = match open_persistent_client(path, "doctor-node", passphrase) {
         Ok(c) => {
             println!("  [OK] Engine opened successfully");
-            c
+            Some(c)
         }
         Err(e) => {
+            report.add_error(format!("failed to open engine: {}", e));
             println!("  [FAIL] Failed to open engine: {}", e);
-            return Ok(());
+            None
         }
     };
 
-    // Basic operations test
-    println!("\nOperations Check");
-    let coll = CollectionName::new("__doctor_test");
-    let id = client.__engine().insert_one(&coll, doc! { "test": true })?;
-    println!("  [OK] Insert works");
+    // Basic operations test (only if engine opened)
+    if let Some(client) = client {
+        println!("\nOperations Check");
+        let coll = CollectionName::new("__doctor_test");
+        let id = client.__engine().insert_one(&coll, doc! { "test": true })?;
+        println!("  [OK] Insert works");
 
-    let found = client.__engine().find_one(&coll, &id)?;
-    assert!(found.is_some());
-    println!("  [OK] Find-by-ID works");
+        let found = client.__engine().find_one(&coll, &id)?;
+        assert!(found.is_some());
+        println!("  [OK] Find-by-ID works");
 
-    let updated = client
-        .__engine()
-        .update_one(&coll, &id, doc! { "$set": { "test": false } })?;
-    assert!(updated);
-    println!("  [OK] Update works");
+        let updated =
+            client
+                .__engine()
+                .update_one(&coll, &id, doc! { "$set": { "test": false } })?;
+        assert!(updated);
+        println!("  [OK] Update works");
 
-    let deleted = client.__engine().delete_one(&coll, &id)?;
-    assert!(deleted);
-    println!("  [OK] Delete (tombstone) works");
+        let deleted = client.__engine().delete_one(&coll, &id)?;
+        assert!(deleted);
+        println!("  [OK] Delete (tombstone) works");
 
-    // Check metadata
-    println!("\nMetadata Check");
-    let id2 = client
-        .__engine()
-        .insert_one(&coll, doc! { "name": "doctor" })?;
-    let doc = client.__engine().find_one(&coll, &id2)?.unwrap();
-    let has_rev = doc.data.contains_key("_rev");
-    let has_updated_at = doc.data.contains_key("_updated_at");
-    let has_source_node = doc.data.contains_key("_source_node");
+        // Check metadata
+        println!("\nMetadata Check");
+        let id2 = client
+            .__engine()
+            .insert_one(&coll, doc! { "name": "doctor" })?;
+        let doc = client.__engine().find_one(&coll, &id2)?.unwrap();
+        let has_rev = doc.data.contains_key("_rev");
+        let has_updated_at = doc.data.contains_key("_updated_at");
+        let has_source_node = doc.data.contains_key("_source_node");
 
-    if has_rev {
-        println!("  [OK] _rev field present");
-    } else {
-        println!("  [WARN] _rev field missing");
+        if has_rev {
+            println!("  [OK] _rev field present");
+        } else {
+            report.add_warning("_rev field missing".to_string());
+            println!("  [WARN] _rev field missing");
+        }
+        if has_updated_at {
+            println!("  [OK] _updated_at field present");
+        } else {
+            report.add_warning("_updated_at field missing".to_string());
+            println!("  [WARN] _updated_at field missing");
+        }
+        if has_source_node {
+            println!("  [OK] _source_node field present");
+        } else {
+            report.add_warning("_source_node field missing".to_string());
+            println!("  [WARN] _source_node field missing");
+        }
+
+        // Cleanup test collection
+        let _ = client.__engine().delete_one(&coll, &id2);
+
+        // Show metrics
+        println!("\nMetrics Snapshot");
+        let metrics = client.__engine().metrics().snapshot();
+        println!("  Inserts: {}", metrics.inserts);
+        println!("  Finds: {}", metrics.finds);
+        println!("  Updates: {}", metrics.updates);
+        println!("  Deletes: {}", metrics.deletes);
+        println!("  Sync pushes: {}", metrics.sync_pushes);
+        println!("  Sync pulls: {}", metrics.sync_pulls);
+
+        // Upgrade check: sample records for canonical envelope metadata
+        println!("\nUpgrade Check");
+        check_canonical_envelope_metadata(&client, &mut report);
     }
-    if has_updated_at {
-        println!("  [OK] _updated_at field present");
-    } else {
-        println!("  [WARN] _updated_at field missing");
-    }
-    if has_source_node {
-        println!("  [OK] _source_node field present");
-    } else {
-        println!("  [WARN] _source_node field missing");
-    }
-
-    // Cleanup test collection
-    let _ = client.__engine().delete_one(&coll, &id2);
-
-    // Show metrics
-    println!("\nMetrics Snapshot");
-    let metrics = client.__engine().metrics().snapshot();
-    println!("  Inserts: {}", metrics.inserts);
-    println!("  Finds: {}", metrics.finds);
-    println!("  Updates: {}", metrics.updates);
-    println!("  Deletes: {}", metrics.deletes);
-    println!("  Sync pushes: {}", metrics.sync_pushes);
-    println!("  Sync pulls: {}", metrics.sync_pulls);
 
     // Sync infrastructure check
     println!("\nSync Infrastructure Check");
@@ -485,7 +525,10 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
                 let seq = oplog.latest_seq().unwrap_or(0);
                 println!("  [OK] Oplog exists (latest seq: {})", seq);
             }
-            Err(e) => println!("  [WARN] Oplog exists but cannot open: {}", e),
+            Err(e) => {
+                report.add_warning(format!("oplog exists but cannot open: {}", e));
+                println!("  [WARN] Oplog exists but cannot open: {}", e);
+            }
         }
     } else {
         println!("  [INFO] Oplog not found (expected for new workspaces)");
@@ -512,7 +555,10 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
                     pending, inflight, failed
                 );
             }
-            Err(e) => println!("  [WARN] Sync queue exists but cannot open: {}", e),
+            Err(e) => {
+                report.add_warning(format!("sync queue exists but cannot open: {}", e));
+                println!("  [WARN] Sync queue exists but cannot open: {}", e);
+            }
         }
     } else {
         println!("  [INFO] Sync queue not found (expected for new workspaces)");
@@ -523,16 +569,103 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
             .get()
         {
             Ok(cp) => println!("  [OK] Checkpoint exists (last_seq: {})", cp.0),
-            Err(e) => println!("  [WARN] Checkpoint exists but cannot read: {}", e),
+            Err(e) => {
+                report.add_warning(format!("checkpoint exists but cannot read: {}", e));
+                println!("  [WARN] Checkpoint exists but cannot read: {}", e);
+            }
         }
     } else {
         println!("  [INFO] Checkpoint not found (expected for new workspaces)");
     }
 
     println!("\n{}", "=".repeat(50));
-    println!("Doctor check complete.");
+    if report.has_errors() {
+        println!("Doctor found {} errors:", report.errors.len());
+        for (i, err) in report.errors.iter().enumerate() {
+            println!("  {}. {}", i + 1, err);
+        }
+        println!("\nFor migration guidance, see: docs/operations/migration-v0.0-to-v0.1.md");
+        anyhow::bail!(
+            "rango doctor: {} workspace incompatibility issues",
+            report.errors.len()
+        );
+    } else {
+        println!("Doctor check complete.");
+        Ok(())
+    }
+}
 
-    Ok(())
+fn check_canonical_envelope_metadata(
+    client: &rango_sdk::RangoClient<rango_storage::RedbStorage>,
+    report: &mut DoctorReport,
+) {
+    use rango_types::CollectionName;
+
+    // We need to sample from existing collections. For MVP, we try a few common collection names
+    // and use find_many to get records. If none exist, we're done (new workspace).
+    let sample_collections = vec![
+        CollectionName::new("documents"),
+        CollectionName::new("records"),
+        CollectionName::new("data"),
+        CollectionName::new("items"),
+    ];
+
+    let canonical_fields = vec![
+        "tenant_id",
+        "namespace",
+        "lineage",
+        "trust_score",
+        "verified",
+        "expires_at",
+        "_rev",
+        "_updated_at",
+        "_source_node",
+    ];
+
+    let mut found_any_record = false;
+
+    for coll in sample_collections {
+        if let Ok(cursor) = client.__engine().find_many(&coll) {
+            let mut count = 0;
+            let records: Vec<_> = cursor.take(20).collect();
+            for record in records.into_iter().flatten() {
+                found_any_record = true;
+                count += 1;
+                let record_id = record
+                    .id()
+                    .map(|b| format!("{}", b))
+                    .unwrap_or_else(|| "(unknown)".to_string());
+
+                // Check for canonical metadata fields
+                for field in &canonical_fields {
+                    if !record.data.contains_key(*field) {
+                        report.add_error(format!(
+                            "workspace incompatible: record {} in collection {} missing canonical metadata field `{}` (legacy v0.0 shape; run upgrade — see docs/operations/migration-v0.0-to-v0.1.md)",
+                            record_id, coll.0, field
+                        ));
+                    }
+                }
+
+                if count >= 20 {
+                    break;
+                }
+            }
+
+            if found_any_record {
+                println!(
+                    "  [OK] Sampled {} record(s) from collection '{}'",
+                    count, coll.0
+                );
+                break;
+            }
+        }
+    }
+
+    if !found_any_record {
+        println!(
+            "  [INFO] No records found; skipping envelope check (expected for new workspaces)"
+        );
+    }
 }
 
 fn sanitize_path(path: &Path) -> Result<PathBuf, anyhow::Error> {

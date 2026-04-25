@@ -19,6 +19,7 @@
 - [Security](operations/security.md)
 - [Release Process](operations/release.md)
 - [Work Management Workflow](operations/workflow.md)
+- [v0.0 → v0.1 Migration Guide](operations/migration-v0.0-to-v0.1.md)
 
 ## Integrations
 - [OpenClaw Integration Guide](integrations/openclaw.md)

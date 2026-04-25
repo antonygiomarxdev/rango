@@ -25,5 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Repository licensing moved to Business Source License 1.1 with a project-specific Additional Use Grant
 - Crate manifests now point to the repository license file and are marked `publish = false` until package distribution is explicitly enabled
+- `rango doctor` now exits with non-zero status on incompatible workspaces (#27)
+
+### Fixed
+- Add v0.0 → v0.1 migration guide and upgrade checks (`docs/operations/migration-v0.0-to-v0.1.md`)
 
 [Unreleased]: https://github.com/antonygiomarxdev/rango/compare/HEAD...HEAD

@@ -211,6 +211,45 @@ impl ControlPlane {
         }
     }
 
+    fn reject(reason: impl Into<String>) -> GovernanceDecision {
+        GovernanceDecision {
+            decision: PolicyDecision::Reject,
+            reason: reason.into(),
+        }
+    }
+
+    fn validate_write_payload(payload: &WritePayload) -> Result<(), GovernanceDecision> {
+        match payload {
+            WritePayload::Event(event) => event
+                .validate()
+                .map_err(|err| Self::reject(format!("invalid_event_envelope:{err}"))),
+            WritePayload::Artifact(artifact) => artifact
+                .validate()
+                .map_err(|err| Self::reject(format!("invalid_artifact_envelope:{err}"))),
+            WritePayload::StateWithTrust { trust_score, .. } => {
+                if trust_score.is_finite() && (0.0..=1.0).contains(trust_score) {
+                    Ok(())
+                } else {
+                    Err(Self::reject(format!("invalid_trust_score:{trust_score}")))
+                }
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_read_request(request: &ReadRequest) -> Result<(), GovernanceDecision> {
+        if request.tenant_id.is_empty() {
+            return Err(Self::reject("invalid_read_request:empty_tenant_id"));
+        }
+        if request.namespace.is_empty() {
+            return Err(Self::reject("invalid_read_request:empty_namespace"));
+        }
+        if request.limit == 0 {
+            return Err(Self::reject("invalid_read_request:limit_must_be_positive"));
+        }
+        Ok(())
+    }
+
     /// Deterministic write hook order:
     /// 1) write validation, 2) trust scoring, 3) audit/anomaly signaling.
     pub fn write_path(
@@ -226,7 +265,20 @@ impl ControlPlane {
             return Ok(validation);
         }
 
+        if let Err(decision) = Self::validate_write_payload(payload) {
+            self.audit_sink.record("write.payload", &decision);
+            self.anomaly_hook.evaluate("write.payload", &decision);
+            return Ok(decision);
+        }
+
         let trust = self.trust_hook.score(ctx, payload);
+        if !trust.is_finite() || !(0.0..=1.0).contains(&trust) {
+            let decision = Self::reject(format!("invalid_trust_score:{trust}"));
+            self.audit_sink.record("write.trust", &decision);
+            self.anomaly_hook.evaluate("write.trust", &decision);
+            return Ok(decision);
+        }
+
         let decision = if trust < 0.25 {
             GovernanceDecision {
                 decision: PolicyDecision::Reject,
@@ -251,6 +303,12 @@ impl ControlPlane {
         request: &ReadRequest,
         candidates: Vec<Document>,
     ) -> Result<(GovernanceDecision, Vec<Document>), RangoError> {
+        if let Err(decision) = Self::validate_read_request(request) {
+            self.audit_sink.record("read.gate", &decision);
+            self.anomaly_hook.evaluate("read.gate", &decision);
+            return Ok((decision, Vec::new()));
+        }
+
         let retrieval = self.retrieval_hook.allow(request);
         self.audit_sink.record("read.gate", &retrieval);
         self.anomaly_hook.evaluate("read.gate", &retrieval);
@@ -259,7 +317,10 @@ impl ControlPlane {
             return Ok((retrieval, Vec::new()));
         }
 
-        let filtered = self.bounded_context_hook.apply(request, candidates);
+        let mut filtered = self.bounded_context_hook.apply(request, candidates);
+        if filtered.len() > request.limit {
+            filtered.truncate(request.limit);
+        }
         Ok((retrieval, filtered))
     }
 
@@ -270,6 +331,13 @@ impl ControlPlane {
         request: &PromotionRequest,
         payload: &WritePayload,
     ) -> Result<(GovernanceDecision, WritePayload), RangoError> {
+        let semantic_path = Self::validate_semantic_promotion(request);
+        if matches!(semantic_path.decision, PolicyDecision::Reject) {
+            self.audit_sink.record("promotion.path", &semantic_path);
+            self.anomaly_hook.evaluate("promotion.path", &semantic_path);
+            return Ok((semantic_path, payload.clone()));
+        }
+
         let sanitized = self.promotion_hook.sanitize(request, payload);
         let decision = self.promotion_hook.allow(request, &sanitized);
 

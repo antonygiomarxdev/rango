@@ -485,6 +485,83 @@ fn test_control_plane_rejects_low_trust_writes() {
 }
 
 #[test]
+fn test_control_plane_rejects_invalid_trust_scores() {
+    let control_plane = ControlPlane::default();
+    let write_ctx = WriteContext {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        actor: "actor".to_string(),
+        source: "source".to_string(),
+        tier: MemoryTier::State,
+    };
+
+    let payload = WritePayload::StateWithTrust {
+        document: doc! { "content": "candidate" },
+        trust_score: f64::NAN,
+    };
+    let decision = control_plane.write_path(&write_ctx, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert!(decision.reason.starts_with("invalid_trust_score:"));
+}
+
+#[test]
+fn test_control_plane_read_path_rejects_invalid_limit() {
+    let control_plane = ControlPlane::default();
+    let read_request = ReadRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        tier: MemoryTier::State,
+        limit: 0,
+    };
+
+    let (decision, filtered) = control_plane
+        .read_path(&read_request, vec![doc! { "k": "v" }])
+        .unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert_eq!(decision.reason, "invalid_read_request:limit_must_be_positive");
+    assert!(filtered.is_empty());
+}
+
+#[test]
+fn test_control_plane_read_path_truncates_to_limit() {
+    let control_plane = ControlPlane::default();
+    let read_request = ReadRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        tier: MemoryTier::State,
+        limit: 1,
+    };
+
+    let (_decision, filtered) = control_plane
+        .read_path(
+            &read_request,
+            vec![doc! { "id": "a" }, doc! { "id": "b" }, doc! { "id": "c" }],
+        )
+        .unwrap();
+    assert_eq!(filtered.len(), 1);
+}
+
+#[test]
+fn test_control_plane_promotion_path_rejects_non_semantic_route() {
+    let control_plane = ControlPlane::default();
+    let request = PromotionRequest {
+        tenant_id: "tenant-a".to_string(),
+        namespace: "ns".to_string(),
+        from: MemoryTier::State,
+        to: MemoryTier::Semantic,
+        candidate_id: "candidate-1".to_string(),
+    };
+    let payload = WritePayload::State(doc! { "k": "v" });
+
+    let (decision, _sanitized) = control_plane.promotion_path(&request, &payload).unwrap();
+    assert!(matches!(decision.decision, PolicyDecision::Reject));
+    assert_eq!(
+        decision.reason,
+        "semantic_promotion_requires_episodic_to_semantic"
+    );
+}
+
+#[test]
 fn test_snapshot_restore_converges_with_full_replay() {
     let coll = CollectionName::new("snapshot");
     let source = setup("node-a");

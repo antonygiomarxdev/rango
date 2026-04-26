@@ -5,9 +5,7 @@ use proptest::prelude::*;
 use rango_core::RangoEngine;
 use rango_oplog::{FileOplog, NullOplog};
 use rango_storage::{MemoryStorage, RedbStorage};
-use rango_types::{
-    CollectionName, DocumentId, Mutation, MutationOp, Revision,
-};
+use rango_types::{CollectionName, DocumentId, Mutation, MutationOp, Revision};
 
 fn setup_memory(node_id: &str) -> RangoEngine<MemoryStorage> {
     let storage = Arc::new(MemoryStorage::new());

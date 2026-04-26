@@ -24,6 +24,10 @@ use tracing::{info, instrument};
 
 use crate::retrieval::{RetrievalRuntime, ranking::rank_candidates_v1};
 
+// Type aliases for scoped index maps
+type ScopedLatestCheckpointIndex = HashMap<(String, String), u64>;
+type ScopedWriteIdIndex = HashMap<(String, String, String), u64>;
+
 #[derive(Debug, Clone)]
 pub struct AuthPrincipal {
     pub node_id: String,
@@ -569,7 +573,7 @@ impl ServerState {
         }
 
         let payload = WritePayload::StateWithTrust {
-            document: req.mutation.patch.clone().unwrap_or_else(Document::new),
+            document: req.mutation.patch.clone().unwrap_or_default(),
             trust_score: req.mutation.metadata.trust_score,
         };
 
@@ -623,12 +627,7 @@ fn scoped_latest_checkpoint(
     Ok(Checkpoint(scoped_latest))
 }
 
-fn build_scoped_indexes(
-    oplog: &dyn Oplog,
-) -> (
-    HashMap<(String, String), u64>,
-    HashMap<(String, String, String), u64>,
-) {
+fn build_scoped_indexes(oplog: &dyn Oplog) -> (ScopedLatestCheckpointIndex, ScopedWriteIdIndex) {
     let mut scoped_latest = HashMap::new();
     let mut scoped_write_ids = HashMap::new();
 

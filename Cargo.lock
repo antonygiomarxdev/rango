@@ -1575,6 +1575,7 @@ dependencies = [
  "rango-storage",
  "rango-types",
  "serde",
+ "tempfile",
  "thiserror",
  "tracing",
 ]

@@ -29,6 +29,18 @@ The control plane in `rango_core::control_plane` owns policy decisions:
 - Remote sync transport is at-least-once; apply path is idempotent by tenant-scoped `write_id`.
 - Duplicate or out-of-order mutation batches remain deterministic.
 
+## Recovery and Replay Contract
+
+Snapshot-anchored recovery ensures deterministic restoration after crash or explicit rollback:
+
+- **Snapshot as canonical anchor:** A snapshot captures the complete materialized state at a sequence boundary (`base_seq`), allowing deterministic recovery without replaying from genesis.
+- **Bounded replay:** After restoring from a snapshot, only mutations _after_ `base_seq` are replayed, capping recovery I/O to O(seqs above snapshot).
+- **Deterministic convergence:** Snapshot + bounded replay of post-snapshot mutations yields identical state as full replay from genesis, satisfying the Deterministic Guarantees contract.
+- **Crash recovery workflow:** On restart, restore from the latest available snapshot, then replay mutations from the oplog in sequence, using `tenant_id` and `write_id` to enforce idempotency.
+- **Explicit rollback:** The `rollback_to_snapshot` API validates the rollback target and enforces that the target sequence cannot precede the snapshot's base sequence, preventing accidental state loss.
+
+**Regression suite:** See `crates/core/tests/recovery_tests.rs` for end-to-end tests covering crash simulation with persistent storage, bounded replay correctness, and property-based determinism validation.
+
 ## Scope Boundaries
 
 - **v1 core:** state/episodic/artifact durability + policy-governed semantic promotion hooks.

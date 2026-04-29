@@ -23,9 +23,30 @@ struct Cli {
     oplog_path: String,
 }
 
+fn init_tracing() {
+    let log_level = std::env::var("RANGO_LOG_LEVEL")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(tracing::Level::INFO);
+
+    let log_format = std::env::var("RANGO_LOG_FORMAT").unwrap_or_default();
+
+    if log_format == "json" {
+        tracing_subscriber::fmt()
+            .with_max_level(log_level)
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_max_level(log_level)
+            .pretty()
+            .init();
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    init_tracing();
     let cli = Cli::parse();
 
     let port = std::env::var("RANGO_PORT")

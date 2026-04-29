@@ -995,6 +995,48 @@ pub async fn handle_promote(
     Ok(Json(response))
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HealthResponse {
+    pub status: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReadyResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+pub async fn handle_health() -> (StatusCode, axum::Json<HealthResponse>) {
+    (
+        StatusCode::OK,
+        axum::Json(HealthResponse {
+            status: "healthy".to_string(),
+        }),
+    )
+}
+
+pub async fn handle_ready(
+    Extension(state): Extension<Arc<ServerState>>,
+) -> (StatusCode, axum::Json<ReadyResponse>) {
+    match state.oplog.latest_seq() {
+        Ok(_) => (
+            StatusCode::OK,
+            axum::Json(ReadyResponse {
+                status: "ready".to_string(),
+                reason: None,
+            }),
+        ),
+        Err(err) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(ReadyResponse {
+                status: "not_ready".to_string(),
+                reason: Some(err.to_string()),
+            }),
+        ),
+    }
+}
+
 const IDENTITY_SEQ_FIELD: &str = "__rango_candidate_seq";
 const IDENTITY_WRITE_ID_FIELD: &str = "__rango_candidate_write_id";
 

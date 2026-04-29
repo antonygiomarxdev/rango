@@ -66,6 +66,8 @@ async fn rate_limit_middleware(
 
 pub fn app(state: Arc<ServerState>) -> Router {
     Router::new()
+        .route("/health", axum::routing::get(routes::handle_health))
+        .route("/ready", axum::routing::get(routes::handle_ready))
         .route("/push", axum::routing::post(routes::handle_push))
         .route("/pull", axum::routing::post(routes::handle_pull))
         .route("/promote", axum::routing::post(routes::handle_promote))

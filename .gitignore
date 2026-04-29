@@ -46,6 +46,9 @@ coverage/
 tarpaulin-report.html
 cobertura.xml
 
+# Proptest regression files (machine-specific)
+*.proptest-regressions
+
 # Benchmark baselines (machine-specific)
 criterion/
 

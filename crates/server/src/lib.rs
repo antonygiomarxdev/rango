@@ -1,3 +1,4 @@
+pub mod observability;
 pub mod retrieval;
 pub mod routes;
 

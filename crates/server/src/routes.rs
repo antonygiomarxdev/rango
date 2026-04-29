@@ -22,6 +22,7 @@ use rango_types::{
 };
 use tracing::{info, instrument};
 
+use crate::observability::RangoMetrics;
 use crate::retrieval::{RetrievalRuntime, ranking::rank_candidates_v1};
 
 // Type aliases for scoped index maps
@@ -45,6 +46,7 @@ pub struct ServerState {
     scoped_write_id_index: Mutex<HashMap<(String, String, String), u64>>,
     audit_counter: AtomicU64,
     retrieval_runtime: RetrievalRuntime,
+    metrics: Option<RangoMetrics>,
 }
 
 impl ServerState {
@@ -66,7 +68,13 @@ impl ServerState {
             scoped_write_id_index: Mutex::new(scoped_write_id_index),
             audit_counter: AtomicU64::new(0),
             retrieval_runtime: RetrievalRuntime::fallback_only(),
+            metrics: None,
         }
+    }
+
+    pub fn with_metrics(mut self, metrics: RangoMetrics) -> Self {
+        self.metrics = Some(metrics);
+        self
     }
 
     pub fn add_token(&self, token: impl Into<String>, node_id: impl Into<String>) {
@@ -229,6 +237,10 @@ impl ServerState {
     }
 
     fn index_mutation(&self, seq: u64, mutation: &Mutation) {
+        // Audit records should not advance user-data checkpoints.
+        if mutation.collection == "__governance_audit" {
+            return;
+        }
         let tenant_id = mutation.metadata.tenant_id.clone();
         let namespace = mutation.metadata.namespace.clone();
         self.scoped_latest_checkpoint_index
@@ -250,6 +262,18 @@ impl ServerState {
     ) -> Result<PushResponse, StatusCode> {
         if req.node_id != principal.node_id {
             self.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "node_mismatch".to_string(),
+            };
+            let _ = self.persist_audit_evidence(
+                "write",
+                &req.tenant_id,
+                &req.namespace,
+                None,
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
             let new_checkpoint = scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
                 .unwrap_or_else(|_| Checkpoint::initial());
             return Ok(PushResponse {
@@ -257,10 +281,7 @@ impl ServerState {
                 new_checkpoint,
                 rejected_non_owner_count: 1,
                 rejected_cross_tenant_count: 0,
-                audit: vec![GovernanceDecision {
-                    decision: PolicyDecision::Reject,
-                    reason: "node_mismatch".to_string(),
-                }],
+                audit: vec![decision],
             });
         }
 
@@ -399,7 +420,30 @@ impl ServerState {
         read_tier: MemoryTier,
     ) -> Result<PullResponse, StatusCode> {
         if principal.node_id != req.node_id || principal.tenant_id != req.tenant_id {
-            return Err(StatusCode::FORBIDDEN);
+            let reason = if principal.tenant_id != req.tenant_id {
+                self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+                "tenant_mismatch"
+            } else {
+                "node_mismatch"
+            };
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: reason.to_string(),
+            };
+            let _ = self.persist_audit_evidence(
+                "read",
+                &req.tenant_id,
+                &req.namespace,
+                None,
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
+            return Ok(PullResponse {
+                mutations: Vec::new(),
+                new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+                audit: vec![decision],
+            });
         }
 
         let entries = self
@@ -491,42 +535,69 @@ impl ServerState {
     ) -> Result<PromoteResponse, StatusCode> {
         if req.node_id != principal.node_id {
             self.non_owner_rejections.fetch_add(1, Ordering::Relaxed);
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "node_mismatch".to_string(),
+            };
+            let _ = self.persist_audit_evidence(
+                "promotion",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&req.mutation.write_id),
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
             return Ok(PromoteResponse {
                 accepted_seqs: Vec::new(),
                 new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
                 rejected_count: 1,
-                audit: vec![GovernanceDecision {
-                    decision: PolicyDecision::Reject,
-                    reason: "node_mismatch".to_string(),
-                }],
+                audit: vec![decision],
             });
         }
 
         if req.tenant_id != principal.tenant_id {
             self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "tenant_mismatch".to_string(),
+            };
+            let _ = self.persist_audit_evidence(
+                "promotion",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&req.mutation.write_id),
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
             return Ok(PromoteResponse {
                 accepted_seqs: Vec::new(),
                 new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
                 rejected_count: 1,
-                audit: vec![GovernanceDecision {
-                    decision: PolicyDecision::Reject,
-                    reason: "tenant_mismatch".to_string(),
-                }],
+                audit: vec![decision],
             });
         }
 
         if let Err(err) = req.mutation.validate_metadata() {
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: format!("invalid_metadata:{err}"),
+            };
+            let _ = self.persist_audit_evidence(
+                "promotion",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&req.mutation.write_id),
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
             return Ok(PromoteResponse {
                 accepted_seqs: Vec::new(),
                 new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
                 rejected_count: 1,
-                audit: vec![GovernanceDecision {
-                    decision: PolicyDecision::Reject,
-                    reason: format!("invalid_metadata:{err}"),
-                }],
+                audit: vec![decision],
             });
         }
 
@@ -534,15 +605,24 @@ impl ServerState {
             || req.mutation.metadata.namespace != req.namespace
         {
             self.cross_tenant_rejections.fetch_add(1, Ordering::Relaxed);
+            let decision = GovernanceDecision {
+                decision: PolicyDecision::Reject,
+                reason: "cross_tenant_or_namespace_mutation".to_string(),
+            };
+            let _ = self.persist_audit_evidence(
+                "promotion",
+                &req.tenant_id,
+                &req.namespace,
+                Some(&req.mutation.write_id),
+                &decision,
+            );
+            self.register_decision_outcome(&req.tenant_id, &req.namespace, &decision);
             return Ok(PromoteResponse {
                 accepted_seqs: Vec::new(),
                 new_checkpoint: scoped_latest_checkpoint(self, &req.tenant_id, &req.namespace)
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
                 rejected_count: 1,
-                audit: vec![GovernanceDecision {
-                    decision: PolicyDecision::Reject,
-                    reason: "cross_tenant_or_namespace_mutation".to_string(),
-                }],
+                audit: vec![decision],
             });
         }
 
@@ -645,6 +725,10 @@ fn build_scoped_indexes(oplog: &dyn Oplog) -> (ScopedLatestCheckpointIndex, Scop
     };
 
     for entry in entries {
+        // Audit records should not advance user-data checkpoints.
+        if entry.mutation.collection == "__governance_audit" {
+            continue;
+        }
         let tenant_id = entry.mutation.metadata.tenant_id.clone();
         let namespace = entry.mutation.metadata.namespace.clone();
         scoped_latest
@@ -729,7 +813,19 @@ pub async fn handle_push(
     // Validate auth token
     let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
     let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
+    let tenant_id = req.tenant_id.clone();
+    let namespace = req.namespace.clone();
     let response = state.process_push(req, principal)?;
+
+    if let Some(metrics) = &state.metrics {
+        let decision = if response.accepted_seqs.is_empty() {
+            "reject"
+        } else {
+            "allow"
+        };
+        metrics.record_push(&tenant_id, &namespace, decision);
+    }
+
     Ok(Json(response))
 }
 
@@ -752,7 +848,19 @@ pub async fn handle_pull(
     let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
     let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
     let read_tier = parse_read_tier(headers.get("X-Rango-Read-Tier"));
+    let tenant_id = req.tenant_id.clone();
+    let namespace = req.namespace.clone();
     let response = state.process_pull(req, principal, read_tier)?;
+
+    if let Some(metrics) = &state.metrics {
+        let decision = if response.mutations.is_empty() {
+            "empty"
+        } else {
+            "allow"
+        };
+        metrics.record_pull(&tenant_id, &namespace, decision);
+    }
+
     Ok(Json(response))
 }
 
@@ -782,6 +890,8 @@ pub async fn handle_retrieval_read(
         limit: req.limit,
     };
 
+    let tenant_id = req.tenant_id.clone();
+    let namespace = req.namespace.clone();
     let response = match state.retrieval_runtime.retrieve(&req) {
         Ok(candidates) => {
             let ranked = rank_candidates_v1(candidates);
@@ -841,6 +951,15 @@ pub async fn handle_retrieval_read(
         }
     };
 
+    if let Some(metrics) = &state.metrics {
+        let decision = match response.status {
+            RetrievalStatus::Healthy => "allow",
+            RetrievalStatus::Degraded => "degraded",
+            _ => "unknown",
+        };
+        metrics.record_retrieval(&tenant_id, &namespace, decision);
+    }
+
     Ok(Json(response))
 }
 
@@ -860,7 +979,19 @@ pub async fn handle_promote(
 
     let auth = headers.get("Authorization").and_then(|v| v.to_str().ok());
     let principal = state.validate_token(auth).ok_or(StatusCode::UNAUTHORIZED)?;
+    let tenant_id = req.tenant_id.clone();
+    let namespace = req.namespace.clone();
     let response = state.process_promote(req, principal)?;
+
+    if let Some(metrics) = &state.metrics {
+        let decision = if response.accepted_seqs.is_empty() {
+            "reject"
+        } else {
+            "allow"
+        };
+        metrics.record_promote(&tenant_id, &namespace, decision);
+    }
+
     Ok(Json(response))
 }
 

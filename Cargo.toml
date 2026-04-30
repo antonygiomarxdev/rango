@@ -86,6 +86,7 @@ tower-http = "0.6"
 
 # Storage engines
 redb = "4.1"
+fs2 = "0.4"
 
 [dev-dependencies]
 criterion = { workspace = true }

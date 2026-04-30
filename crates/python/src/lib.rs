@@ -6,7 +6,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rango_oplog::FileOplog;
-use rango_storage::RedbStorage;
+use rango_storage::{DegradingStorage, RedbStorage};
 use rango_types::{DocumentId, RangoDocument, RangoError};
 /// Convert a Python dict to a bson::Document via JSON bridge.
 fn py_dict_to_document(dict: &Bound<'_, PyDict>) -> PyResult<Document> {
@@ -80,7 +80,7 @@ fn parse_doc_id(id: &str) -> DocumentId {
 /// ```
 #[pyclass(name = "RangoClient")]
 pub struct PyRangoClient {
-    client: rango_sdk::RangoClient<RedbStorage>,
+    client: rango_sdk::RangoClient<DegradingStorage<RedbStorage>>,
 }
 
 #[pymethods]
@@ -96,8 +96,10 @@ impl PyRangoClient {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create workspace: {e}")))?;
 
         let storage_path = base_path.join("data.redb");
+        let inner_storage = RedbStorage::open(&storage_path).map_err(rango_err_to_py)?;
         let storage = Arc::new(
-            RedbStorage::open(&storage_path).map_err(rango_err_to_py)?,
+            DegradingStorage::with_default_threshold(inner_storage, &storage_path)
+                .map_err(rango_err_to_py)?,
         );
 
         let oplog_path = base_path.join("oplog.bin");
@@ -214,6 +216,7 @@ impl PyRangoClient {
         let collection = self.client.collection(collection_name);
         collection.delete_one(&doc_id).map_err(rango_err_to_py)
     }
+
 }
 
 /// A Python module implemented in Rust.

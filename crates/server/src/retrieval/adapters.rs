@@ -3,14 +3,17 @@ use rango_types::{
     RankingSignals, RetrievalCandidate, RetrievalCapabilityRequest, RetrievalSource,
 };
 
+/// Error kind for adapter operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdapterErrorKind {
     Timeout,
     Unavailable,
     Unauthorized,
     InvalidRequest,
+    NotConfigured,
 }
 
+/// Error returned by adapter operations.
 #[derive(Debug, Clone)]
 pub struct AdapterError {
     pub kind: AdapterErrorKind,
@@ -24,20 +27,66 @@ impl AdapterError {
             reason: reason.into(),
         }
     }
+
+    pub fn not_configured(reason: impl Into<String>) -> Self {
+        Self {
+            kind: AdapterErrorKind::NotConfigured,
+            reason: reason.into(),
+        }
+    }
 }
 
+/// Contract for vector retrieval adapters (Qdrant, pgvector, etc.)
+///
+/// # Contract
+/// 1. **Tenant isolation**: Every query MUST include tenant_id + namespace filters
+/// 2. **Timeout**: Operations MUST timeout and return `AdapterErrorKind::Timeout`
+/// 3. **Signals**: Returned candidates MUST include `RankingSignals` for ranking
+/// 4. **Health check**: `health_check()` MUST return within 1 second
 pub trait VectorRetrievalAdapter: Send + Sync {
+    /// Query the vector store for candidates matching the request.
     fn query_vector(
         &self,
         request: &RetrievalCapabilityRequest,
     ) -> Result<Vec<RetrievalCandidate>, AdapterError>;
+
+    /// Check if the adapter is healthy and configured.
+    fn health_check(&self) -> Result<(), AdapterError> {
+        // Default: assume healthy if query succeeds
+        Ok(())
+    }
+
+    /// Adapter name for observability.
+    fn adapter_name(&self) -> &'static str {
+        "unknown_vector_adapter"
+    }
 }
 
+/// Contract for graph retrieval adapters (Neo4j, etc.)
+///
+/// # Contract
+/// 1. **Tenant isolation**: Every query MUST include tenant_id + namespace filters
+/// 2. **Parameterized queries**: MUST use parameterized Cypher/SQL (no string concat)
+/// 3. **Timeout**: Operations MUST timeout and return `AdapterErrorKind::Timeout`
+/// 4. **Signals**: Returned candidates MUST include `RankingSignals` for ranking
+/// 5. **Health check**: `health_check()` MUST return within 1 second
 pub trait GraphRetrievalAdapter: Send + Sync {
+    /// Query the graph store for candidates matching the request.
     fn query_graph(
         &self,
         request: &RetrievalCapabilityRequest,
     ) -> Result<Vec<RetrievalCandidate>, AdapterError>;
+
+    /// Check if the adapter is healthy and configured.
+    fn health_check(&self) -> Result<(), AdapterError> {
+        // Default: assume healthy if query succeeds
+        Ok(())
+    }
+
+    /// Adapter name for observability.
+    fn adapter_name(&self) -> &'static str {
+        "unknown_graph_adapter"
+    }
 }
 
 // Deterministic mock adapter for tests and fallback-only defaults.
@@ -51,6 +100,10 @@ impl VectorRetrievalAdapter for AdapterCapabilities {
     ) -> Result<Vec<RetrievalCandidate>, AdapterError> {
         Err(AdapterError::unavailable("vector_adapter_unavailable"))
     }
+
+    fn adapter_name(&self) -> &'static str {
+        "fallback_vector"
+    }
 }
 
 impl GraphRetrievalAdapter for AdapterCapabilities {
@@ -60,8 +113,13 @@ impl GraphRetrievalAdapter for AdapterCapabilities {
     ) -> Result<Vec<RetrievalCandidate>, AdapterError> {
         Err(AdapterError::unavailable("graph_adapter_unavailable"))
     }
+
+    fn adapter_name(&self) -> &'static str {
+        "fallback_graph"
+    }
 }
 
+/// Reference Qdrant adapter implementation.
 #[derive(Debug, Clone)]
 pub struct QdrantAdapter {
     pub available: bool,
@@ -106,8 +164,20 @@ impl VectorRetrievalAdapter for QdrantAdapter {
         };
         Ok(vec![candidate])
     }
+
+    fn health_check(&self) -> Result<(), AdapterError> {
+        if !self.available {
+            return Err(AdapterError::unavailable("qdrant_not_available"));
+        }
+        Ok(())
+    }
+
+    fn adapter_name(&self) -> &'static str {
+        "qdrant"
+    }
 }
 
+/// Reference Neo4j adapter implementation.
 #[derive(Debug, Clone)]
 pub struct Neo4jAdapter {
     pub available: bool,
@@ -150,5 +220,16 @@ impl GraphRetrievalAdapter for Neo4jAdapter {
             explainability: None,
         };
         Ok(vec![candidate])
+    }
+
+    fn health_check(&self) -> Result<(), AdapterError> {
+        if !self.available {
+            return Err(AdapterError::unavailable("neo4j_not_available"));
+        }
+        Ok(())
+    }
+
+    fn adapter_name(&self) -> &'static str {
+        "neo4j"
     }
 }

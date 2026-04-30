@@ -1,0 +1,28 @@
+[package]
+name = "rango-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "MIT"
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", default-features = false, features = ["napi8"] }
+napi-derive = "2"
+bson = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rango-sdk = { path = "../sdk-rust" }
+rango-core = { path = "../core" }
+rango-types = { path = "../types" }
+rango-storage = { path = "../storage" }
+rango-oplog = { path = "../oplog" }
+uuid = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"

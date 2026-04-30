@@ -2,7 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release/*]
+  push:
+    branches: [main, release/*]
   workflow_dispatch:
 
 env:
@@ -40,32 +42,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-features
-
-  # ---------------------------------------------------------------------------
-  # SDK stability gate (compile-time integration test)
-  # ---------------------------------------------------------------------------
-  sdk-stability:
-    name: SDK Stability
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p sdk-stability-example
-      - run: cargo run -p sdk-stability-example
-
-  # ---------------------------------------------------------------------------
-  # OpenClaw integration gate (smoke test + contract drift detection)
-  # ---------------------------------------------------------------------------
-  integration-openclaw:
-    name: OpenClaw Integration
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo run -p openclaw-smoke --locked
+      - run: cargo clippy --workspace --all-features -- -D warnings
 
   # ---------------------------------------------------------------------------
   # Tests (matrix: stable + MSRV)
@@ -87,6 +64,92 @@ jobs:
         with:
           key: ${{ matrix.os }}-${{ matrix.rust }}
       - run: cargo test --workspace --all-features
+
+  # ---------------------------------------------------------------------------
+  # Python binding tests
+  # ---------------------------------------------------------------------------
+  python-binding:
+    name: Python Binding
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install maturin
+        run: pip install maturin pytest
+      - name: Build Python binding
+        working-directory: crates/python
+        run: maturin develop
+      - name: Run Python tests
+        working-directory: crates/python
+        run: python -m pytest tests/ -v
+
+  # ---------------------------------------------------------------------------
+  # Node.js binding build check
+  # ---------------------------------------------------------------------------
+  node-binding:
+    name: Node.js Binding
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Build Node.js binding
+        working-directory: crates/node
+        run: napi build --platform
+
+  # ---------------------------------------------------------------------------
+  # Benchmark compilation check
+  # ---------------------------------------------------------------------------
+  bench-compile:
+    name: Benchmark Compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo bench --bench adversarial --no-run
+
+  # ---------------------------------------------------------------------------
+  # SDK stability gate (compile-time integration test)
+  # ---------------------------------------------------------------------------
+  sdk-stability:
+    name: SDK Stability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p sdk-stability-example
+      - run: cargo run -p sdk-stability-example
+
+  # ---------------------------------------------------------------------------
+  # OpenClaw integration gate (smoke test + contract drift detection)
+  # ---------------------------------------------------------------------------
+  integration-openclaw:
+    name: OpenClaw Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo run -p openclaw-smoke --locked
 
   # ---------------------------------------------------------------------------
   # Security audit

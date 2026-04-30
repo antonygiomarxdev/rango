@@ -19,8 +19,12 @@ fn json_str_to_document(json_str: &str) -> Result<Document> {
 
 /// Convert a bson::Document to a JSON string.
 fn document_to_json_str(doc: &Document) -> Result<String> {
-    let json_value = serde_json::to_value(doc)
-        .map_err(|e| Error::new(Status::GenericFailure, format!("JSON serialization error: {e}")))?;
+    let json_value = serde_json::to_value(doc).map_err(|e| {
+        Error::new(
+            Status::GenericFailure,
+            format!("JSON serialization error: {e}"),
+        )
+    })?;
     serde_json::to_string(&json_value)
         .map_err(|e| Error::new(Status::GenericFailure, format!("JSON stringify error: {e}")))
 }
@@ -69,8 +73,12 @@ impl RangoClient {
     #[napi(constructor)]
     pub fn new(path: String, node_id: Option<String>) -> Result<Self> {
         let base_path = Path::new(&path);
-        std::fs::create_dir_all(base_path)
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to create workspace: {e}")))?;
+        std::fs::create_dir_all(base_path).map_err(|e| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to create workspace: {e}"),
+            )
+        })?;
 
         let storage_path = base_path.join("data.redb");
         let inner_storage = RedbStorage::open(&storage_path)
@@ -125,7 +133,12 @@ impl RangoClient {
     }
 
     #[napi]
-    pub fn update_one(&self, collection_name: String, id: String, json_update: String) -> Result<bool> {
+    pub fn update_one(
+        &self,
+        collection_name: String,
+        id: String,
+        json_update: String,
+    ) -> Result<bool> {
         let doc_id = parse_doc_id(&id);
         let mut document = json_str_to_document(&json_update)?;
         // Auto-wrap in $set if no operators present (DX-friendly)
@@ -136,7 +149,9 @@ impl RangoClient {
             document = wrapped;
         }
         let collection = self.client.collection(&collection_name);
-        collection.update_one(&doc_id, document).map_err(rango_err_to_napi)
+        collection
+            .update_one(&doc_id, document)
+            .map_err(rango_err_to_napi)
     }
 
     #[napi]

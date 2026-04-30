@@ -1,5 +1,5 @@
-use opentelemetry::metrics::{Counter, Meter, UpDownCounter};
 use opentelemetry::KeyValue;
+use opentelemetry::metrics::{Counter, Meter, UpDownCounter};
 use opentelemetry_sdk::metrics::PeriodicReader;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::testing::metrics::InMemoryMetricExporter;
@@ -96,18 +96,27 @@ impl RangoMetrics {
         ];
         self.rejected_operations_total.add(1, &attrs);
     }
+
+    pub fn connection_up(&self) {
+        self.active_connections.add(1, &[]);
+    }
+
+    pub fn connection_down(&self) {
+        self.active_connections.add(-1, &[]);
+    }
 }
 
 /// Initialize a test meter provider with an in-memory exporter.
 pub fn init_test_meter_provider() -> (SdkMeterProvider, InMemoryMetricExporter) {
     let exporter = InMemoryMetricExporter::default();
-    let reader = PeriodicReader::builder(exporter.clone(), opentelemetry_sdk::runtime::TokioCurrentThread)
-        .with_interval(Duration::from_secs(60))
-        .build();
+    let reader = PeriodicReader::builder(
+        exporter.clone(),
+        opentelemetry_sdk::runtime::TokioCurrentThread,
+    )
+    .with_interval(Duration::from_secs(60))
+    .build();
 
-    let provider = SdkMeterProvider::builder()
-        .with_reader(reader)
-        .build();
+    let provider = SdkMeterProvider::builder().with_reader(reader).build();
 
     (provider, exporter)
 }

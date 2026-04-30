@@ -1,6 +1,8 @@
 use rango_types::{Checkpoint, MemoryTier, RangoError};
 
-use crate::protocol::{PromoteRequest, PromoteResponse, PullRequest, PullResponse, PushRequest, PushResponse};
+use crate::protocol::{
+    PromoteRequest, PromoteResponse, PullRequest, PullResponse, PushRequest, PushResponse,
+};
 
 /// HTTP client for sync operations.
 #[derive(Debug, Clone)]
@@ -115,10 +117,20 @@ impl SyncClient {
         candidate_id: String,
         checkpoint: Checkpoint,
     ) -> Result<PromoteResponse, RangoError> {
-        self.promote_scoped(node_id, "default", "default", mutation, from_tier, to_tier, candidate_id, checkpoint)
-            .await
+        self.promote_scoped(
+            node_id,
+            "default",
+            "default",
+            mutation,
+            from_tier,
+            to_tier,
+            candidate_id,
+            checkpoint,
+        )
+        .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn promote_scoped(
         &self,
         node_id: &str,
@@ -152,7 +164,10 @@ impl SyncClient {
             .map_err(|e| RangoError::Sync(e.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err(RangoError::Sync(format!("Promote failed: {}", resp.status())));
+            return Err(RangoError::Sync(format!(
+                "Promote failed: {}",
+                resp.status()
+            )));
         }
 
         resp.json::<PromoteResponse>()

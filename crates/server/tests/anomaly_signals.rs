@@ -6,10 +6,10 @@ use rango_core::{
     AnomalySignalHook, ControlPlane, NoopAuditSink, NoopBoundedContextFilterHook,
     NoopPromotionGateHook, NoopRetrievalGateHook, NoopTrustScoringHook, NoopWriteValidationHook,
 };
-use rango_types::GovernanceDecision;
 use rango_oplog::Oplog;
 use rango_server::{app, routes::ServerState};
 use rango_sync::client::SyncClient;
+use rango_types::GovernanceDecision;
 use rango_types::{
     Checkpoint, DocumentId, Mutation, MutationMetadata, MutationOp, OplogEntry, PolicyDecision,
     RangoError, Revision,
@@ -58,7 +58,10 @@ struct CounterAnomalyHook {
 
 impl AnomalySignalHook for CounterAnomalyHook {
     fn evaluate(&self, stage: &'static str, decision: &GovernanceDecision) {
-        self.signals.lock().unwrap().push((stage.to_string(), decision.clone()));
+        self.signals
+            .lock()
+            .unwrap()
+            .push((stage.to_string(), decision.clone()));
     }
 }
 
@@ -154,7 +157,11 @@ async fn anomaly_signals_emitted_for_low_trust_rejects() {
         .await
         .unwrap();
 
-    assert_eq!(resp.accepted_seqs.len(), 0, "low-trust mutation should be rejected");
+    assert_eq!(
+        resp.accepted_seqs.len(),
+        0,
+        "low-trust mutation should be rejected"
+    );
     assert!(
         anomaly.count_signals() > 0,
         "anomaly signals should be emitted for rejected operations"
@@ -204,7 +211,11 @@ async fn anomaly_signals_emitted_for_cross_tenant_attempts() {
         .await
         .unwrap();
 
-    assert_eq!(resp.accepted_seqs.len(), 0, "cross-tenant mutation should be rejected");
+    assert_eq!(
+        resp.accepted_seqs.len(),
+        0,
+        "cross-tenant mutation should be rejected"
+    );
     assert!(
         resp.audit.iter().any(|d| d.reason.contains("cross_tenant")),
         "cross-tenant should produce audit reason"
@@ -249,11 +260,18 @@ async fn containment_gate_blocks_pull_during_reject_mode() {
         .unwrap();
 
     assert!(
-        pull_resp.audit.iter().any(|d| d.reason.contains("containment_reject")),
+        pull_resp
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("containment_reject")),
         "pull should be blocked by containment gate when in reject mode, got audit: {:?}",
         pull_resp.audit
     );
-    assert_eq!(pull_resp.mutations.len(), 0, "no mutations should be returned during containment");
+    assert_eq!(
+        pull_resp.mutations.len(),
+        0,
+        "no mutations should be returned during containment"
+    );
 }
 
 #[tokio::test]
@@ -306,9 +324,16 @@ async fn containment_gate_blocks_promote_during_reject_mode() {
         .unwrap();
 
     assert!(
-        promote_resp.audit.iter().any(|d| d.reason.contains("containment_reject")),
+        promote_resp
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("containment_reject")),
         "promote should be blocked by containment gate when in reject mode, got audit: {:?}",
         promote_resp.audit
     );
-    assert_eq!(promote_resp.accepted_seqs.len(), 0, "no promotions should be accepted during containment");
+    assert_eq!(
+        promote_resp.accepted_seqs.len(),
+        0,
+        "no promotions should be accepted during containment"
+    );
 }

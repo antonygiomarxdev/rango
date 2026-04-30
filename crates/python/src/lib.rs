@@ -29,9 +29,9 @@ fn document_to_py_dict<'py>(py: Python<'py>, doc: &Document) -> PyResult<Bound<'
         .map_err(|e| PyRuntimeError::new_err(format!("JSON stringify error: {e}")))?;
     let json_module = py.import("json")?;
     let py_obj = json_module.call_method1("loads", (json_str,))?;
-    py_obj.downcast_into::<PyDict>().map_err(|_| {
-        PyRuntimeError::new_err("Expected dict from JSON deserialization")
-    })
+    py_obj
+        .downcast_into::<PyDict>()
+        .map_err(|_| PyRuntimeError::new_err("Expected dict from JSON deserialization"))
 }
 
 /// Convert RangoDocument to Python dict with _id and _rev fields.
@@ -103,12 +103,10 @@ impl PyRangoClient {
         );
 
         let oplog_path = base_path.join("oplog.bin");
-        let oplog = Arc::new(
-            FileOplog::new(&oplog_path).map_err(rango_err_to_py)?,
-        );
+        let oplog = Arc::new(FileOplog::new(&oplog_path).map_err(rango_err_to_py)?);
 
-        let client = rango_sdk::RangoClient::open(storage, oplog, node_id)
-            .map_err(rango_err_to_py)?;
+        let client =
+            rango_sdk::RangoClient::open(storage, oplog, node_id).map_err(rango_err_to_py)?;
 
         Ok(Self { client })
     }
@@ -199,7 +197,9 @@ impl PyRangoClient {
             document = wrapped;
         }
         let collection = self.client.collection(collection_name);
-        collection.update_one(&doc_id, document).map_err(rango_err_to_py)
+        collection
+            .update_one(&doc_id, document)
+            .map_err(rango_err_to_py)
     }
 
     /// Delete a document by ID.
@@ -216,7 +216,6 @@ impl PyRangoClient {
         let collection = self.client.collection(collection_name);
         collection.delete_one(&doc_id).map_err(rango_err_to_py)
     }
-
 }
 
 /// A Python module implemented in Rust.

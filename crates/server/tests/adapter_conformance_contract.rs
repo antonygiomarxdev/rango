@@ -56,7 +56,10 @@ async fn vector_adapter_returns_ranking_signals() {
             candidate.signals.relevance > 0.0,
             "relevance signal must be present"
         );
-        assert!(candidate.signals.trust > 0.0, "trust signal must be present");
+        assert!(
+            candidate.signals.trust > 0.0,
+            "trust signal must be present"
+        );
         assert!(
             candidate.signals.recency > 0.0,
             "recency signal must be present"
@@ -121,10 +124,16 @@ async fn fallback_adapter_returns_unavailable() {
     let graph_result = fallback.query_graph(&request());
 
     assert!(vector_result.is_err());
-    assert_eq!(vector_result.unwrap_err().kind, AdapterErrorKind::Unavailable);
+    assert_eq!(
+        vector_result.unwrap_err().kind,
+        AdapterErrorKind::Unavailable
+    );
 
     assert!(graph_result.is_err());
-    assert_eq!(graph_result.unwrap_err().kind, AdapterErrorKind::Unavailable);
+    assert_eq!(
+        graph_result.unwrap_err().kind,
+        AdapterErrorKind::Unavailable
+    );
 }
 
 /// Contract test: Adapter names are descriptive.

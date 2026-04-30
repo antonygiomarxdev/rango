@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use axum::Extension;
 use axum::http::StatusCode;
 use rango_oplog::Oplog;
-use rango_server::routes::{HealthResponse, ReadyResponse, ServerState, handle_health, handle_ready};
+use rango_server::routes::{
+    HealthResponse, ReadyResponse, ServerState, handle_health, handle_ready,
+};
 use rango_types::{OplogEntry, RangoError};
 
 #[derive(Default)]
@@ -65,7 +67,8 @@ impl Oplog for BrokenOplog {
 
 #[tokio::test]
 async fn health_returns_200_and_healthy_json() {
-    let (status, axum::Json(body)): (StatusCode, axum::Json<HealthResponse>) = handle_health().await;
+    let (status, axum::Json(body)): (StatusCode, axum::Json<HealthResponse>) =
+        handle_health().await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body.status, "healthy");
 }

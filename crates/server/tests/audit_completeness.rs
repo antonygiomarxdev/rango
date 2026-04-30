@@ -68,7 +68,10 @@ async fn all_boundary_violations_produce_audit_records() {
         .unwrap();
     assert_eq!(cross_tenant_push.accepted_seqs.len(), 0);
     assert!(
-        cross_tenant_push.audit.iter().any(|d| d.reason.contains("cross_tenant")),
+        cross_tenant_push
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("cross_tenant")),
         "cross-tenant mutation should produce audit record"
     );
 
@@ -85,7 +88,10 @@ async fn all_boundary_violations_produce_audit_records() {
         .unwrap();
     assert_eq!(poisoning.accepted_seqs.len(), 0);
     assert!(
-        poisoning.audit.iter().any(|d| d.reason.contains("trust") || d.reason.contains("poison")),
+        poisoning
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("trust") || d.reason.contains("poison")),
         "low-trust poisoning should produce audit record"
     );
 
@@ -97,7 +103,10 @@ async fn all_boundary_violations_produce_audit_records() {
     assert_eq!(cross_tenant_pull.mutations.len(), 0);
     // Pull rejection audit is returned in the response
     assert!(
-        cross_tenant_pull.audit.iter().any(|d| d.reason.contains("tenant_mismatch")),
+        cross_tenant_pull
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("tenant_mismatch")),
         "cross-tenant pull should produce audit record with tenant_mismatch reason"
     );
 
@@ -114,7 +123,10 @@ async fn all_boundary_violations_produce_audit_records() {
         .unwrap();
     assert_eq!(owner_mismatch.accepted_seqs.len(), 0);
     assert!(
-        owner_mismatch.audit.iter().any(|d| d.reason.contains("owner") || d.reason.contains("node")),
+        owner_mismatch
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("owner") || d.reason.contains("node")),
         "node ownership mismatch should produce audit record"
     );
 

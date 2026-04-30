@@ -295,7 +295,13 @@ async fn main() -> Result<()> {
             limit,
         } => {
             let path = sanitize_path(&path)?;
-            run_audit(&path, format, tenant_id.as_deref(), namespace.as_deref(), limit)?;
+            run_audit(
+                &path,
+                format,
+                tenant_id.as_deref(),
+                namespace.as_deref(),
+                limit,
+            )?;
         }
     }
 

@@ -41,11 +41,7 @@ impl<S: StorageEngine> std::fmt::Debug for DegradingStorage<S> {
 
 impl<S: StorageEngine> DegradingStorage<S> {
     /// Wrap an existing storage engine with degradation monitoring.
-    pub fn new(
-        inner: S,
-        path: impl AsRef<Path>,
-        min_free_bytes: u64,
-    ) -> Result<Self, RangoError> {
+    pub fn new(inner: S, path: impl AsRef<Path>, min_free_bytes: u64) -> Result<Self, RangoError> {
         let path = path.as_ref().to_path_buf();
         let space_checker = Arc::new(move || {
             fs2::available_space(&path)
@@ -69,10 +65,7 @@ impl<S: StorageEngine> DegradingStorage<S> {
     }
 
     /// Create with sensible defaults: 100MB minimum free space.
-    pub fn with_default_threshold(
-        inner: S,
-        path: impl AsRef<Path>,
-    ) -> Result<Self, RangoError> {
+    pub fn with_default_threshold(inner: S, path: impl AsRef<Path>) -> Result<Self, RangoError> {
         Self::new(inner, path, 100 * 1024 * 1024)
     }
 
@@ -204,7 +197,9 @@ mod tests {
         let id = DocumentId::new_uuid_v7();
 
         // Write should work initially
-        storage.put(&collection, &id, &doc! { "name": "alice" }).unwrap();
+        storage
+            .put(&collection, &id, &doc! { "name": "alice" })
+            .unwrap();
 
         // Read should always work
         let found = storage.get(&collection, &id).unwrap();
@@ -222,13 +217,18 @@ mod tests {
 
         // Write should work with plenty of space
         available.store(1000, Ordering::Relaxed);
-        storage.put(&collection, &id, &doc! { "name": "alice" }).unwrap();
+        storage
+            .put(&collection, &id, &doc! { "name": "alice" })
+            .unwrap();
         assert!(!storage.is_degraded());
 
         // Degrade by dropping available space below threshold
         available.store(50, Ordering::Relaxed);
         let result = storage.put(&collection, &id, &doc! { "name": "bob" });
-        assert!(result.is_err(), "should reject writes when space is below threshold");
+        assert!(
+            result.is_err(),
+            "should reject writes when space is below threshold"
+        );
         assert!(storage.is_degraded());
 
         // Reads still work even when degraded
@@ -252,7 +252,9 @@ mod tests {
 
         // Recover by increasing available space
         available.store(200, Ordering::Relaxed);
-        storage.put(&collection, &id, &doc! { "name": "alice" }).unwrap();
+        storage
+            .put(&collection, &id, &doc! { "name": "alice" })
+            .unwrap();
         assert!(!storage.is_degraded());
     }
 

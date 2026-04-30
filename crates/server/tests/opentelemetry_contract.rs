@@ -5,15 +5,15 @@ use axum::Extension;
 use axum::extract::Json;
 use axum::http::{HeaderMap, HeaderValue};
 use bson::doc;
-use rango_oplog::Oplog;
-use rango_server::routes::{ServerState, handle_push, handle_pull};
-use rango_sync::protocol::{PushRequest, PullRequest};
-use rango_types::{
-    Checkpoint, DocumentId, Mutation, MutationMetadata, MutationOp, OplogEntry,
-    RangoError, Revision,
-};
-use rango_server::observability::{RangoMetrics, init_test_meter_provider};
 use opentelemetry::metrics::MeterProvider;
+use rango_oplog::Oplog;
+use rango_server::observability::{RangoMetrics, init_test_meter_provider};
+use rango_server::routes::{ServerState, handle_pull, handle_push};
+use rango_sync::protocol::{PullRequest, PushRequest};
+use rango_types::{
+    Checkpoint, DocumentId, Mutation, MutationMetadata, MutationOp, OplogEntry, RangoError,
+    Revision,
+};
 
 #[derive(Default)]
 struct InMemoryOplog {
@@ -53,7 +53,10 @@ impl Oplog for InMemoryOplog {
 fn make_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("X-Rango-Protocol-Version", HeaderValue::from_static("1"));
-    headers.insert("Authorization", HeaderValue::from_static("Bearer test-token"));
+    headers.insert(
+        "Authorization",
+        HeaderValue::from_static("Bearer test-token"),
+    );
     headers
 }
 

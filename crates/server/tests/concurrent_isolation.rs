@@ -118,25 +118,49 @@ async fn namespace_isolation_holds_under_concurrent_sync() {
         }
     });
 
-    let (a_ns1_res, a_ns2_res, b_ns1_res, c_forge_res) = tokio::join!(a_ns1, a_ns2, b_ns1, c_forge_a);
+    let (a_ns1_res, a_ns2_res, b_ns1_res, c_forge_res) =
+        tokio::join!(a_ns1, a_ns2, b_ns1, c_forge_a);
 
     let a_ns1_resp = a_ns1_res.unwrap().unwrap();
     let a_ns2_resp = a_ns2_res.unwrap().unwrap();
     let b_ns1_resp = b_ns1_res.unwrap().unwrap();
     let c_forge_resp = c_forge_res.unwrap().unwrap();
 
-    assert_eq!(a_ns1_resp.accepted_seqs.len(), 1, "tenant-a ns-1 push should succeed");
-    assert_eq!(a_ns2_resp.accepted_seqs.len(), 1, "tenant-a ns-2 push should succeed");
-    assert_eq!(b_ns1_resp.accepted_seqs.len(), 1, "tenant-b ns-1 push should succeed");
-    assert_eq!(c_forge_resp.accepted_seqs.len(), 0, "forged tenant-a mutation should be rejected");
-    assert_eq!(c_forge_resp.rejected_cross_tenant_count, 1, "forged mutation should count as cross-tenant rejection");
+    assert_eq!(
+        a_ns1_resp.accepted_seqs.len(),
+        1,
+        "tenant-a ns-1 push should succeed"
+    );
+    assert_eq!(
+        a_ns2_resp.accepted_seqs.len(),
+        1,
+        "tenant-a ns-2 push should succeed"
+    );
+    assert_eq!(
+        b_ns1_resp.accepted_seqs.len(),
+        1,
+        "tenant-b ns-1 push should succeed"
+    );
+    assert_eq!(
+        c_forge_resp.accepted_seqs.len(),
+        0,
+        "forged tenant-a mutation should be rejected"
+    );
+    assert_eq!(
+        c_forge_resp.rejected_cross_tenant_count, 1,
+        "forged mutation should count as cross-tenant rejection"
+    );
 
     // Verify namespace isolation: each tenant only sees their own data
     let pull_a_ns1 = tenant_a
         .pull_scoped("client-a", "tenant-a", "ns-1", Checkpoint::initial())
         .await
         .unwrap();
-    assert_eq!(pull_a_ns1.mutations.len(), 1, "tenant-a ns-1 should see exactly 1 mutation");
+    assert_eq!(
+        pull_a_ns1.mutations.len(),
+        1,
+        "tenant-a ns-1 should see exactly 1 mutation"
+    );
     assert_eq!(
         pull_a_ns1.mutations[0].metadata.tenant_id, "tenant-a",
         "tenant-a pull should only contain tenant-a data"
@@ -146,7 +170,11 @@ async fn namespace_isolation_holds_under_concurrent_sync() {
         .pull_scoped("client-a", "tenant-a", "ns-2", Checkpoint::initial())
         .await
         .unwrap();
-    assert_eq!(pull_a_ns2.mutations.len(), 1, "tenant-a ns-2 should see exactly 1 mutation");
+    assert_eq!(
+        pull_a_ns2.mutations.len(),
+        1,
+        "tenant-a ns-2 should see exactly 1 mutation"
+    );
     assert_eq!(
         pull_a_ns2.mutations[0].metadata.namespace, "ns-2",
         "tenant-a ns-2 pull should only contain ns-2 data"
@@ -156,7 +184,11 @@ async fn namespace_isolation_holds_under_concurrent_sync() {
         .pull_scoped("client-b", "tenant-b", "ns-1", Checkpoint::initial())
         .await
         .unwrap();
-    assert_eq!(pull_b_ns1.mutations.len(), 1, "tenant-b ns-1 should see exactly 1 mutation");
+    assert_eq!(
+        pull_b_ns1.mutations.len(),
+        1,
+        "tenant-b ns-1 should see exactly 1 mutation"
+    );
     assert_eq!(
         pull_b_ns1.mutations[0].metadata.tenant_id, "tenant-b",
         "tenant-b pull should only contain tenant-b data"
@@ -166,11 +198,18 @@ async fn namespace_isolation_holds_under_concurrent_sync() {
         .pull_scoped("client-c", "tenant-c", "ns-1", Checkpoint::initial())
         .await
         .unwrap();
-    assert_eq!(pull_c_ns1.mutations.len(), 0, "tenant-c ns-1 should see no mutations (forgery rejected)");
+    assert_eq!(
+        pull_c_ns1.mutations.len(),
+        0,
+        "tenant-c ns-1 should see no mutations (forgery rejected)"
+    );
 
     // Verify audit records exist for the rejection
     assert!(
-        c_forge_resp.audit.iter().any(|d| d.reason.contains("cross_tenant")),
+        c_forge_resp
+            .audit
+            .iter()
+            .any(|d| d.reason.contains("cross_tenant")),
         "forged cross-tenant mutation should produce audit record with cross_tenant reason"
     );
 
@@ -182,7 +221,8 @@ async fn namespace_isolation_holds_under_concurrent_sync() {
 
     // Verify no cross-tenant leakage in state
     assert_eq!(
-        state.cross_tenant_rejections(), 1,
+        state.cross_tenant_rejections(),
+        1,
         "exactly one cross-tenant rejection should be recorded in server state"
     );
 }
@@ -236,7 +276,12 @@ async fn concurrent_push_pull_same_namespace_preserves_consistency() {
         let client = client.clone();
         async move {
             client
-                .pull_scoped("client-a", "tenant-a", "ns-concurrent", Checkpoint::initial())
+                .pull_scoped(
+                    "client-a",
+                    "tenant-a",
+                    "ns-concurrent",
+                    Checkpoint::initial(),
+                )
                 .await
         }
     });
@@ -245,13 +290,20 @@ async fn concurrent_push_pull_same_namespace_preserves_consistency() {
     let push2_resp = push2_res.unwrap().unwrap();
     let pull1_resp = pull1_res.unwrap().unwrap();
 
-    assert_eq!(push2_resp.accepted_seqs.len(), 1, "concurrent push should succeed");
+    assert_eq!(
+        push2_resp.accepted_seqs.len(),
+        1,
+        "concurrent push should succeed"
+    );
     assert!(
         pull1_resp.mutations.len() >= 1,
         "concurrent pull should see at least the first mutation"
     );
     assert!(
-        pull1_resp.mutations.iter().all(|m| m.metadata.tenant_id == "tenant-a" && m.metadata.namespace == "ns-concurrent"),
+        pull1_resp
+            .mutations
+            .iter()
+            .all(|m| m.metadata.tenant_id == "tenant-a" && m.metadata.namespace == "ns-concurrent"),
         "all pulled mutations should belong to tenant-a ns-concurrent"
     );
 }
@@ -262,7 +314,10 @@ fn temp_oplog_path() -> String {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
     std::env::temp_dir()
-        .join(format!("rango-concurrent-isolation-oplog-{}-{}.rgo", pid, n))
+        .join(format!(
+            "rango-concurrent-isolation-oplog-{}-{}.rgo",
+            pid, n
+        ))
         .to_string_lossy()
         .to_string()
 }

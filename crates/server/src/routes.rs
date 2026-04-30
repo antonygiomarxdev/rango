@@ -139,7 +139,7 @@ impl ServerState {
         state.observe_decision(decision);
     }
 
-    fn persist_audit_evidence(
+    pub fn persist_audit_evidence(
         &self,
         stage: &str,
         tenant_id: &str,
@@ -255,7 +255,7 @@ impl ServerState {
             .insert((tenant_id, namespace, mutation.write_id.clone()), seq);
     }
 
-    fn process_push(
+    pub fn process_push(
         &self,
         req: PushRequest,
         principal: AuthPrincipal,
@@ -413,7 +413,7 @@ impl ServerState {
         })
     }
 
-    fn process_pull(
+    pub fn process_pull(
         &self,
         req: PullRequest,
         principal: AuthPrincipal,
@@ -695,7 +695,7 @@ impl ServerState {
     }
 }
 
-fn scoped_latest_checkpoint(
+pub fn scoped_latest_checkpoint(
     state: &ServerState,
     tenant_id: &str,
     namespace: &str,

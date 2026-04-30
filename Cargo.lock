@@ -2090,6 +2090,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rango"
+version = "0.1.0"
+dependencies = [
+ "bson",
+ "criterion",
+ "rand 0.8.6",
+ "rango-core",
+ "rango-oplog",
+ "rango-server",
+ "rango-sync",
+ "rango-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rango-cli"
 version = "0.1.0"
 dependencies = [

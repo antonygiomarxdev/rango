@@ -20,6 +20,7 @@ members = [
     "crates/sync",
     "crates/server",
     "crates/sdk-rust",
+    "crates/python",
     "crates/cli",
     "examples/openclaw-smoke",
     "examples/sdk-stability",

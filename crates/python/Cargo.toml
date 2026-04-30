@@ -1,0 +1,29 @@
+[package]
+name = "rango-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "MIT"
+repository.workspace = true
+publish = false
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+pyo3-stub-gen = "0.6"
+serde = { workspace = true }
+serde_json = { workspace = true }
+bson = { workspace = true }
+rango-sdk = { path = "../sdk-rust" }
+rango-core = { path = "../core" }
+rango-types = { path = "../types" }
+rango-storage = { path = "../storage" }
+rango-oplog = { path = "../oplog" }
+uuid = { workspace = true }
+
+[dev-dependencies]
+pyo3 = { version = "0.23", features = ["auto-initialize"] }

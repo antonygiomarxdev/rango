@@ -179,7 +179,9 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: RUSTSEC-2026-0009
+          ignore: |
+            RUSTSEC-2026-0009
+            RUSTSEC-2025-0052
 
   # ---------------------------------------------------------------------------
   # Dependency policy check

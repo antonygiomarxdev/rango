@@ -99,8 +99,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         working-directory: crates/python
         run: |
-          pip3 install ../../target/wheels/*.whl
-          python3 -m pytest tests/ -v
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install maturin pytest
+          maturin develop
+          python -m pytest tests/ -v
 
   # ---------------------------------------------------------------------------
   # Node.js binding build check

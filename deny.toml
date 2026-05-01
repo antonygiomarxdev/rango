@@ -41,17 +41,12 @@ workspace-default-features = "allow"
 external-default-features = "allow"
 
 deny = [
-    # Prefer tokio ecosystem over async-std
-    { name = "async-std" },
     # Avoid openssl — use rustls
     { name = "openssl" },
     { name = "openssl-sys" },
 ]
 
-skip = [
-    # async-std is pulled in transitively by opentelemetry_sdk; tracked upstream.
-    { name = "async-std", version = "*" },
-]
+skip = []
 skip-tree = []
 
 # ---------------------------------------------------------------------------

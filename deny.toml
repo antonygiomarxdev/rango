@@ -48,7 +48,10 @@ deny = [
     { name = "openssl-sys" },
 ]
 
-skip = []
+skip = [
+    # async-std is pulled in transitively by opentelemetry_sdk; tracked upstream.
+    { name = "async-std", version = "*" },
+]
 skip-tree = []
 
 # ---------------------------------------------------------------------------
@@ -61,6 +64,8 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 ignore = [
     # Tracked via audit workflow until transitive ecosystem update lands.
     "RUSTSEC-2026-0009",
+    # async-std discontinued — transitive via opentelemetry_sdk, no safe upgrade yet.
+    "RUSTSEC-2025-0052",
 ]
 
 # ---------------------------------------------------------------------------

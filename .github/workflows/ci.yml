@@ -63,6 +63,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}-${{ matrix.rust }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: cargo test --workspace --all-features
 
   # ---------------------------------------------------------------------------
@@ -96,7 +99,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         working-directory: crates/python
         run: |
-          maturin develop
+          pip3 install ../../target/wheels/*.whl
           python3 -m pytest tests/ -v
 
   # ---------------------------------------------------------------------------
@@ -165,6 +168,9 @@ jobs:
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
       - uses: rustsec/audit-check@v2

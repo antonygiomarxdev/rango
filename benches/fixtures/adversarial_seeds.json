@@ -1,0 +1,8 @@
+{
+  "poisoning": 42,
+  "cross_tenant_leak": 1337,
+  "replay": 9001,
+  "push_throughput": 12345,
+  "pull_latency": 54321,
+  "audit_persistence": 99999
+}

@@ -1,3 +1,14 @@
+[package]
+name = "rango"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license-file = "LICENSE"
+publish = false
+repository.workspace = true
+autoexamples = false
+
 [workspace]
 members = [
     "crates/types",
@@ -9,6 +20,8 @@ members = [
     "crates/sync",
     "crates/server",
     "crates/sdk-rust",
+    "crates/python",
+    "crates/node",
     "crates/cli",
     "examples/openclaw-smoke",
     "examples/sdk-stability",
@@ -16,7 +29,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Rango Contributors"]
@@ -45,6 +58,11 @@ anyhow = "1.0"
 # Observability
 tracing = "0.1"
 tracing-subscriber = "0.3"
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "testing"] }
+opentelemetry-otlp = { version = "0.27", features = ["metrics", "trace"] }
+opentelemetry-prometheus = "0.27"
+tracing-opentelemetry = "0.28"
 
 # ID generation
 uuid = { version = "1.17", features = ["v7", "serde"] }
@@ -69,3 +87,20 @@ tower-http = "0.6"
 
 # Storage engines
 redb = "4.1"
+fs2 = "0.4"
+
+[dev-dependencies]
+criterion = { workspace = true }
+rango-server = { path = "crates/server" }
+rango-core = { path = "crates/core" }
+rango-oplog = { path = "crates/oplog" }
+rango-sync = { path = "crates/sync" }
+rango-types = { path = "crates/types" }
+bson = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+
+[[bench]]
+name = "adversarial"
+harness = false

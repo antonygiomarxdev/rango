@@ -7,6 +7,7 @@ authors.workspace = true
 license-file = "../../LICENSE"
 publish = false
 repository.workspace = true
+autobenches = false
 
 [dependencies]
 rango-types = { path = "../types" }
@@ -17,7 +18,11 @@ bson = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
@@ -26,3 +31,5 @@ clap = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+tempfile = "3"
+rango-storage = { path = "../storage" }

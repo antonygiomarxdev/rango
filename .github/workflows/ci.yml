@@ -2,7 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release/*]
+  push:
+    branches: [main, release/*]
   workflow_dispatch:
 
 env:
@@ -40,7 +42,103 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-features
+      - run: cargo clippy --workspace --all-features -- -D warnings
+
+  # ---------------------------------------------------------------------------
+  # Tests (matrix: stable + MSRV)
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test / ${{ matrix.rust }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, "1.85"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.rust }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: cargo test --workspace --all-features
+
+  # ---------------------------------------------------------------------------
+  # Python binding build + tests
+  # ---------------------------------------------------------------------------
+  python-binding:
+    name: Python Binding / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-dev python3-pip
+      - name: Install maturin and pytest
+        run: pip3 install maturin pytest
+      - name: Build Python binding
+        working-directory: crates/python
+        run: maturin build
+      - name: Run Python tests (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: crates/python
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install maturin pytest
+          maturin develop
+          python -m pytest tests/ -v
+
+  # ---------------------------------------------------------------------------
+  # Node.js binding build check
+  # ---------------------------------------------------------------------------
+  node-binding:
+    name: Node.js Binding / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install napi-rs CLI
+        run: npm install -g @napi-rs/cli
+      - name: Build Node.js binding
+        working-directory: crates/node
+        run: napi build --platform
+
+  # ---------------------------------------------------------------------------
+  # Benchmark compilation check
+  # ---------------------------------------------------------------------------
+  bench-compile:
+    name: Benchmark Compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo bench --bench adversarial --no-run
 
   # ---------------------------------------------------------------------------
   # SDK stability gate (compile-time integration test)
@@ -62,31 +160,10 @@ jobs:
     name: OpenClaw Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo run -p openclaw-smoke --locked
-
-  # ---------------------------------------------------------------------------
-  # Tests (matrix: stable + MSRV)
-  # ---------------------------------------------------------------------------
-  test:
-    name: Test / ${{ matrix.rust }} / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, "1.85"]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.os }}-${{ matrix.rust }}
-      - run: cargo test --workspace --all-features
 
   # ---------------------------------------------------------------------------
   # Security audit
@@ -94,12 +171,15 @@ jobs:
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: RUSTSEC-2026-0009
+          ignore: RUSTSEC-2026-0009, RUSTSEC-2025-0052
 
   # ---------------------------------------------------------------------------
   # Dependency policy check

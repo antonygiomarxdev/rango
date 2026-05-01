@@ -1,6 +1,8 @@
-use rango_types::{Checkpoint, RangoError};
+use rango_types::{Checkpoint, MemoryTier, RangoError};
 
-use crate::protocol::{PullRequest, PullResponse, PushRequest, PushResponse};
+use crate::protocol::{
+    PromoteRequest, PromoteResponse, PullRequest, PullResponse, PushRequest, PushResponse,
+};
 
 /// HTTP client for sync operations.
 #[derive(Debug, Clone)]
@@ -102,6 +104,73 @@ impl SyncClient {
         }
 
         resp.json::<PullResponse>()
+            .await
+            .map_err(|e| RangoError::Sync(e.to_string()))
+    }
+
+    pub async fn promote(
+        &self,
+        node_id: &str,
+        mutation: rango_types::Mutation,
+        from_tier: MemoryTier,
+        to_tier: MemoryTier,
+        candidate_id: String,
+        checkpoint: Checkpoint,
+    ) -> Result<PromoteResponse, RangoError> {
+        self.promote_scoped(
+            node_id,
+            "default",
+            "default",
+            mutation,
+            from_tier,
+            to_tier,
+            candidate_id,
+            checkpoint,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn promote_scoped(
+        &self,
+        node_id: &str,
+        tenant_id: &str,
+        namespace: &str,
+        mutation: rango_types::Mutation,
+        from_tier: MemoryTier,
+        to_tier: MemoryTier,
+        candidate_id: String,
+        checkpoint: Checkpoint,
+    ) -> Result<PromoteResponse, RangoError> {
+        let req = PromoteRequest {
+            node_id: node_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            namespace: namespace.to_string(),
+            mutation,
+            from_tier,
+            to_tier,
+            candidate_id,
+            last_checkpoint: checkpoint,
+        };
+        let url = format!("{}/promote", self.server_url);
+        let resp = self
+            .http
+            .post(&url)
+            .header("X-Rango-Protocol-Version", "1")
+            .header("Authorization", format!("Bearer {}", self.node_token))
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| RangoError::Sync(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(RangoError::Sync(format!(
+                "Promote failed: {}",
+                resp.status()
+            )));
+        }
+
+        resp.json::<PromoteResponse>()
             .await
             .map_err(|e| RangoError::Sync(e.to_string()))
     }

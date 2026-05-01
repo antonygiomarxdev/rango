@@ -88,6 +88,24 @@ enum Commands {
         #[arg(long)]
         passphrase: Option<String>,
     },
+    /// Generate audit report from governance trail
+    Audit {
+        /// Path to the workspace
+        #[arg(default_value = ".rango")]
+        path: PathBuf,
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "text")]
+        format: AuditFormat,
+        /// Filter by tenant ID
+        #[arg(short, long)]
+        tenant_id: Option<String>,
+        /// Filter by namespace
+        #[arg(short, long)]
+        namespace: Option<String>,
+        /// Limit number of entries
+        #[arg(short, long, default_value = "100")]
+        limit: usize,
+    },
     /// Sync with a remote server (one-shot push/pull)
     Sync {
         /// Path to the workspace
@@ -116,6 +134,13 @@ enum ImportFormat {
 #[derive(Clone, ValueEnum)]
 enum ExportFormat {
     Json,
+}
+
+#[derive(Clone, ValueEnum)]
+enum AuditFormat {
+    Text,
+    Json,
+    Csv,
 }
 
 #[tokio::main]
@@ -261,6 +286,22 @@ async fn main() -> Result<()> {
         } => {
             let path = sanitize_path(&path)?;
             run_sync(&path, &server, &token, &node_id, passphrase.as_deref()).await?;
+        }
+        Commands::Audit {
+            path,
+            format,
+            tenant_id,
+            namespace,
+            limit,
+        } => {
+            let path = sanitize_path(&path)?;
+            run_audit(
+                &path,
+                format,
+                tenant_id.as_deref(),
+                namespace.as_deref(),
+                limit,
+            )?;
         }
     }
 
@@ -806,6 +847,121 @@ async fn run_sync(
 
     println!("\n{}", "=".repeat(50));
     println!("Sync complete.");
+
+    Ok(())
+}
+
+fn run_audit(
+    path: &Path,
+    format: AuditFormat,
+    tenant_id: Option<&str>,
+    namespace: Option<&str>,
+    limit: usize,
+) -> Result<()> {
+    use rango_oplog::Oplog;
+    use rango_types::OplogEntry;
+
+    println!("Rango Audit Report");
+    println!("{}", "=".repeat(60));
+    println!("Workspace: {}", path.display());
+    if let Some(t) = tenant_id {
+        println!("Tenant filter: {}", t);
+    }
+    if let Some(ns) = namespace {
+        println!("Namespace filter: {}", ns);
+    }
+    println!("Limit: {} entries", limit);
+    println!();
+
+    let oplog_path = path.join("oplog.bin");
+    if !oplog_path.exists() {
+        println!("No audit trail found (oplog does not exist).");
+        return Ok(());
+    }
+
+    let oplog = rango_oplog::FileOplog::new(&oplog_path)?;
+    let entries = oplog.read_since(1, limit)?;
+
+    // Filter to audit entries (__governance_audit collection)
+    let audit_entries: Vec<&OplogEntry> = entries
+        .iter()
+        .filter(|e| e.mutation.collection == "__governance_audit")
+        .filter(|e| {
+            if let Some(t_filter) = tenant_id {
+                return e.mutation.metadata.tenant_id == t_filter;
+            }
+            true
+        })
+        .filter(|e| {
+            if let Some(ns_filter) = namespace {
+                return e.mutation.metadata.namespace == ns_filter;
+            }
+            true
+        })
+        .collect();
+
+    if audit_entries.is_empty() {
+        println!("No governance audit entries found.");
+        return Ok(());
+    }
+
+    match format {
+        AuditFormat::Text => {
+            println!("Found {} audit entries:\n", audit_entries.len());
+            for entry in audit_entries {
+                let m = &entry.mutation;
+                let stage = m.collection.clone();
+                let action = format!("{:?}", m.op);
+                let reason = m.write_id.clone();
+                let ts = entry.timestamp;
+                let tenant = &m.metadata.tenant_id;
+                let ns = &m.metadata.namespace;
+                println!(
+                    "  [{:?}] {} — {} | tenant={}, ns={} | write_id={}",
+                    ts, stage, action, tenant, ns, reason
+                );
+            }
+        }
+        AuditFormat::Json => {
+            let mut output = Vec::new();
+            for entry in audit_entries {
+                let m = &entry.mutation;
+                let mut json_doc = serde_json::Map::new();
+                json_doc.insert("seq".to_string(), entry.seq.into());
+                json_doc.insert("timestamp".to_string(), entry.timestamp.to_string().into());
+                json_doc.insert("collection".to_string(), m.collection.clone().into());
+                json_doc.insert("op".to_string(), format!("{:?}", m.op).into());
+                json_doc.insert("tenant_id".to_string(), m.metadata.tenant_id.clone().into());
+                json_doc.insert("namespace".to_string(), m.metadata.namespace.clone().into());
+                json_doc.insert("write_id".to_string(), m.write_id.clone().into());
+                if let Some(patch) = &m.patch {
+                    if let Ok(patch_json) = serde_json::to_value(patch) {
+                        json_doc.insert("patch".to_string(), patch_json);
+                    }
+                }
+                output.push(serde_json::Value::Object(json_doc));
+            }
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        AuditFormat::Csv => {
+            println!("seq,timestamp,collection,op,tenant_id,namespace,write_id");
+            for entry in audit_entries {
+                let m = &entry.mutation;
+                let collection = m.collection.replace(',', ";");
+                let op = format!("{:?}", m.op).replace(',', ";");
+                let tenant = m.metadata.tenant_id.replace(',', ";");
+                let ns = m.metadata.namespace.replace(',', ";");
+                let write_id = m.write_id.replace(',', ";");
+                println!(
+                    "{},{:?},{},{},{},{},{}",
+                    entry.seq, entry.timestamp, collection, op, tenant, ns, write_id
+                );
+            }
+        }
+    }
+
+    println!("\n{}", "=".repeat(60));
+    println!("Audit report complete.");
 
     Ok(())
 }

@@ -86,7 +86,7 @@ async fn ready_returns_200_when_oplog_accessible() {
 
 #[tokio::test]
 async fn ready_returns_503_when_oplog_broken() {
-    let oplog = Arc::new(BrokenOplog::default());
+    let oplog = Arc::new(BrokenOplog);
     let state = Arc::new(ServerState::new(oplog));
     let (status, axum::Json(body)): (StatusCode, axum::Json<ReadyResponse>) =
         handle_ready(Extension(state)).await;

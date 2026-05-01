@@ -165,9 +165,8 @@ async fn handlers_work_with_metrics_enabled() {
 async fn metric_names_follow_contract() {
     let (provider, _) = init_test_meter_provider();
     let meter = provider.meter("rango-server");
-    let metrics = RangoMetrics::new(meter);
+    let _metrics = RangoMetrics::new(meter);
 
     // Simply verify metrics struct is created without panic
     // The contract is validated by the metric names in the RangoMetrics constructor
-    assert!(true, "RangoMetrics created successfully with OTel meter");
 }

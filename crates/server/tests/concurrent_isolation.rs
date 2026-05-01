@@ -296,7 +296,7 @@ async fn concurrent_push_pull_same_namespace_preserves_consistency() {
         "concurrent push should succeed"
     );
     assert!(
-        pull1_resp.mutations.len() >= 1,
+        !pull1_resp.mutations.is_empty(),
         "concurrent pull should see at least the first mutation"
     );
     assert!(

@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn open_client(node_id: &str) -> Result<RangoClient<MemoryStorage>, Box<dyn std::error::Error>> {
+fn open_client(node_id: &str) -> Result<RangoClient, Box<dyn std::error::Error>> {
     let storage = Arc::new(MemoryStorage::new());
     let oplog = Arc::new(NullOplog::new());
     Ok(RangoClient::open(storage, oplog, node_id)?)

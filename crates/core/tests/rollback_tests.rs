@@ -8,7 +8,7 @@ use rango_types::{
     CollectionName, DocumentId, Mutation, MutationOp, PolicyDecision, Revision, RollbackUnit,
 };
 
-fn setup(node_id: &str) -> RangoEngine<MemoryStorage> {
+fn setup(node_id: &str) -> RangoEngine {
     let storage = Arc::new(MemoryStorage::new());
     let oplog = Arc::new(NullOplog::new());
     RangoEngine::open(storage, oplog, node_id).unwrap()

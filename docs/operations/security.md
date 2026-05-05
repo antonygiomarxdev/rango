@@ -39,7 +39,7 @@
 | SEC-005 | **Medium** | Auth tokens stored as plain `String` in memory with no secure clearing | Documented as accepted risk (see below); `zeroize` integration planned for Phase 7 completion | Accepted |
 | SEC-006 | **Medium** | Sync protocol uses HTTP by default without TLS enforcement | Documented â€” **operators must use HTTPS/reverse proxy in production** | Accepted |
 | SEC-007 | **Medium** | No rate limiting on server push/pull endpoints | Planned for Phase 7 completion; currently mitigated by body size limit and network perimeter | Accepted |
-| SEC-008 | **Medium** | Single static Bearer token per node with no expiration/refresh | Documented as MVP limitation; JWT or mTLS planned for post-pilot | Accepted |
+| SEC-008 | **Medium** | Single static Bearer token per node with no expiration/refresh | Documented as MVP limitation; JWT or mTLS planned for v0.2.0 | Accepted |
 | SEC-009 | **Low** | No audit log of who performed which mutation | Planned for server-side logging enhancement | Accepted |
 | SEC-010 | **Low** | `MemoryStorage` backend does not zero memory on drop | Documented â€” only for dev/testing; production will use file-based backend with encryption | Accepted |
 
@@ -78,7 +78,7 @@
 - **Protocol:** HTTP/JSON (MVP)
 - **Authentication:** Bearer token in `Authorization` header
 - **Required operator action:** Deploy server behind HTTPS reverse proxy (nginx, Traefik, Caddy) or cloud load balancer with TLS termination
-- **Future:** Native TLS support in `SyncClient` and server planned for post-pilot
+- **Future:** Native TLS support in `SyncClient` and server planned for v0.2.0
 
 ---
 
@@ -120,11 +120,11 @@ The following risks are explicitly accepted for the MVP/pilot phase with justifi
 
 | Risk | Justification | Remediation Timeline |
 |------|---------------|---------------------|
-| No mTLS / client certificates | Complexity; Bearer tokens sufficient for initial pilot scope | Post-pilot |
-| No rate limiting | Network perimeter + body size limit provide partial mitigation | Phase 7 completion |
-| Tokens in memory as String | `zeroize` crate adds dependency complexity; acceptable for pilot | Phase 7 completion |
-| No formal crypto audit | Well-known crates (RustCrypto) used; audit budgeted for v1.0 | Pre-v1.0 release |
-| MemoryStorage for dev only | File-based persistent storage engine decision pending | Phase 2 completion |
+| No mTLS / client certificates | Complexity; Bearer tokens sufficient for initial pilot scope | v0.2.0 |
+| No rate limiting | Network perimeter + body size limit provide partial mitigation | v0.2.0 |
+| Tokens in memory as String | `zeroize` crate adds dependency complexity; acceptable for pilot | v0.2.0 |
+| No formal crypto audit | Well-known crates (RustCrypto) used; audit budgeted for v1.0 | Pre-production release |
+| MemoryStorage for dev only | File-based persistent storage engine decision pending | v0.1.0 |
 
 ---
 
@@ -146,7 +146,7 @@ The following risks are explicitly accepted for the MVP/pilot phase with justifi
 
 *This document is a living document. Review and update at each phase transition and before every release.*
 
-## 8. Memory Control-Plane Poisoning Baseline (Phase 09)
+## 8. Memory Control-Plane Poisoning Baseline
 
 The sync/server path now enforces poisoning controls and tenant isolation at executable hook points:
 

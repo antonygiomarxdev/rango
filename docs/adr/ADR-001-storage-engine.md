@@ -5,10 +5,10 @@ Accepted - 2026-04-24
 
 ## Context
 Rango necesita persistencia embebida local-first con durabilidad real para estado operativo y replay.
-La arquitectura ya expone `StorageEngine` como contrato intercambiable y requiere un backend default de produccion para v1.
+La arquitectura ya expone `StorageEngine` como contrato intercambiable y requiere un backend default de produccion para v0.1.0.
 
 ## Decision
-- Backend default de v1: **redb**.
+- Backend default de v0.1.0: **redb**.
 - `StorageEngine` permanece como contrato estable para permitir swap de backend futuro sin romper `core/sdk/server`.
 - `MemoryStorage` queda restringido a test/dev.
 

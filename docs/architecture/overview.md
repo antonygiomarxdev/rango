@@ -1,8 +1,8 @@
-# Rango Architecture Overview (Phase 09)
+# Rango Architecture Overview
 
 ## Positioning
 
-Rango v1 is a local-first memory substrate with deterministic durability and sync semantics.
+Rango is a local-first memory substrate with deterministic durability and sync semantics.
 Core contracts remain domain-neutral: no workflow orchestration semantics in `crates/core` or `crates/types`.
 
 ## Crate Boundaries
@@ -44,5 +44,5 @@ Snapshot-anchored recovery ensures deterministic restoration after crash or expl
 ## Scope Boundaries
 
 - **v1 core:** state/episodic/artifact durability + policy-governed semantic promotion hooks.
-- **v1.5-v2:** semantic consolidation and higher-order derived memory strategies.
-- **v2+:** advanced retrieval (vector/graph) outside core substrate.
+- **v0.2.0-v0.3.0:** semantic consolidation, operability, and sync hardening.
+- **post-v0.3.0:** advanced retrieval (vector/graph) as external projections, not core substrate.

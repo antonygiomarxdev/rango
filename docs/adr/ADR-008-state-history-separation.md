@@ -5,7 +5,7 @@ Accepted
 
 ## Context
 
-Phase 8 introduces explicit support for stateful AI workloads that require:
+Rango requires explicit support for stateful AI workloads that require:
 - **Deterministic replay:** Exact reconstruction of state after crash/reconnect
 - **Audit trail integrity:** Immutable history of all mutations
 - **Conflict resolution:** Safe merging of concurrent writes from multiple nodes

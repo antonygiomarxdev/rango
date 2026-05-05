@@ -7,9 +7,9 @@
 
 ## Context
 
-Phase 09 introduces a memory control plane and governance metadata to support tenant isolation,
+Phase 2 (Memory Control Plane) introduces governance metadata to support tenant isolation,
 provenance, trust, replay determinism, and policy-gated tier promotion. Without explicit boundaries,
-v1 core risks absorbing semantic/retrieval product semantics that belong to later phases.
+the core substrate risks absorbing semantic/retrieval product semantics that belong to later phases.
 
 ## Decision
 
@@ -23,19 +23,19 @@ v1 core risks absorbing semantic/retrieval product semantics that belong to late
 
 ## Scope Boundaries
 
-### In v1 Core
+### In v0.1.0 Core
 
 - Tenant-aware contracts and validation.
 - Policy hooks with deterministic invocation order.
 - Poisoning baseline controls (trust-aware gating, sanitization hooks, auditable outcomes).
 - Deterministic replay/snapshot/rollback/idempotent sync behavior.
 
-### Deferred to v1.5-v2
+### Deferred to v0.2.0
 
 - Semantic consolidation logic and higher-order derived memory policies.
 - Rich ranking heuristics for semantic retrieval.
 
-### Deferred to v2+
+### Deferred to post-v0.3.0
 
 - Vector/graph-native retrieval primitives in core.
 - Workflow/orchestration semantics in core contracts.

@@ -5,7 +5,7 @@ Accepted
 
 ## Context
 
-Phase 8 repositions Rango from a generic data engine into a **memory-first local engine for stateful AI workloads**. However, this positioning must NOT leak AI-specific semantics into the core engine.
+Rango is positioned as a **memory-first local engine for stateful AI workloads**. However, this positioning must NOT leak AI-specific semantics into the core engine.
 
 **Problem:** Without a frozen architectural boundary, core crates (types, core, storage, sync, server) risk accumulating:
 - AI-specific vocabulary (e.g., "agent", "memory", "conversation", "tool")

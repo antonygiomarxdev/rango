@@ -13,21 +13,36 @@ Rango is built as infrastructure below agents and apps:
 - local-first writes with incremental sync
 - clear layer boundaries for future semantic/retrieval projections
 
-## v1 Scope
+## Version Scope
 
-Included in v1:
+### v0.1.0 — Durable Substrate
 
-- embedded local engine
-- append-only oplog
-- current state store
-- simple indexes and deterministic replay
-- snapshots/checkpoints
+- embedded local engine with `redb` backend
+- append-only oplog + deterministic replay
+- current state store with snapshots/checkpoints
+- simple B-tree indexes
 - sync foundations (push/pull + checkpoint progression)
 - tenant/namespace isolation primitives
 
-Out of v1 core:
+### v0.2.0 — Security & Governance
 
-- vector-native retrieval
+- audit trail completeness (`__governance_audit`)
+- anomaly detection + containment gates
+- graceful degradation (`DegradingStorage`)
+- OpenTelemetry metrics + health endpoints
+- Python (PyO3) and TypeScript/Node.js (napi-rs) bindings
+- adversarial benchmarks + CLI audit report
+
+### v0.3.0 — Operability & Sync (in progress)
+
+- multi-node sync hardening (partition/heal regression suite)
+- backup/restore CLI with optional S3 sink
+- external read contract (how tools read from Rango)
+- trust-aware ranking input contract documentation
+
+Out of core (post-v0.3.0):
+
+- vector-native retrieval (requires ADR on embedding versioning)
 - graph reasoning engine
 - workflow/orchestration semantics
 - dynamic plugin loading in core
@@ -121,11 +136,17 @@ rango sync ./memory --server http://localhost:8080 --token dev-token --node-id n
 
 ## Integration Modes for Products Built on Rango
 
-1. Embedded mode: each product instance embeds Rango locally for offline durability.
-2. Hub-and-spoke mode: product instances sync to a central `rango-server` hub.
-3. Multi-product mode: each product gets tenant/namespace isolation and shared sync topology.
+1. **Embedded mode**: each product instance embeds Rango locally for offline durability.
+2. **Hub-and-spoke mode**: product instances sync to a central `rango-server` hub.
+3. **Multi-product mode**: each product gets tenant/namespace isolation and shared sync topology.
 
 This allows products other than OpenClaw to use the same substrate with the same core contract.
+
+## Language Bindings
+
+- **Rust**: `rango-sdk` (native crate)
+- **Python**: `pip install rango` (PyO3 + maturin, see `crates/python/`)
+- **TypeScript/Node.js**: `npm install rango` (napi-rs, see `crates/node/`)
 
 ## Integrations
 
@@ -134,11 +155,20 @@ This allows products other than OpenClaw to use the same substrate with the same
 
 ## Release Naming
 
-- Stable tags: `vX.Y.Z` -> GitHub release name `Rango vX.Y.Z`
-- Main prereleases: `vX.Y.Z-rango-YYYYMMDD-HHMM-SHA` -> GitHub release name `Rango vX.Y.Z-rango.YYYYMMDD-HHMM+SHA`
-- Channel tags:
+- **Stable tags**: `vX.Y.Z` → GitHub release name `Rango vX.Y.Z`
+- **Main prereleases**: `vX.Y.Z-rango-YYYYMMDD-HHMM-SHA` → GitHub release name `Rango vX.Y.Z-rango.YYYYMMDD-HHMM+SHA`
+- **Channel tags**:
   - stable releases move `latest`
   - prereleases from `main` move `nightly` and `beta`
+
+## Rango Integration Skill
+
+A [Claude Code skill](skills/rango-integration/SKILL.md) is available for agentic development on Rango. It provides four modes:
+
+- **Setup**: Scaffold a new Rango workspace or integration
+- **Pattern**: Apply tested Rango patterns (sync, audit, tenant isolation)
+- **Architecture**: Validate changes against Rango's design constraints
+- **Audit**: Review code for Rango-specific correctness and safety
 
 ## Validation
 

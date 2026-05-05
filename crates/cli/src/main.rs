@@ -636,10 +636,7 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     }
 }
 
-fn check_canonical_envelope_metadata(
-    client: &rango_sdk::RangoClient,
-    report: &mut DoctorReport,
-) {
+fn check_canonical_envelope_metadata(client: &rango_sdk::RangoClient, report: &mut DoctorReport) {
     use rango_types::CollectionName;
 
     // We need to sample from existing collections. For MVP, we try a few common collection names

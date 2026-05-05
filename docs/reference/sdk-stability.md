@@ -23,7 +23,7 @@ The following items are **stable** and subject to SemVer compatibility guarantee
 ### RangoClient Methods
 
 - `RangoClient::open(storage, oplog, node_id) -> Result<Self, RangoError>`
-- `RangoClient::collection(name) -> CollectionClient<'_, S>`
+- `RangoClient::collection(name) -> CollectionClient<'_>`
 - `RangoClient::import_json(collection, path, progress) -> Result<ImportResult, RangoError>`
 - `RangoClient::export_json(collection, path) -> Result<ExportResult, RangoError>`
 
@@ -135,17 +135,17 @@ If your change causes `examples/sdk-stability/` to fail compilation, it is a bre
 
 ---
 
-## Known Limitation: Generic StorageEngine
+## Type Erasure
 
-The SDK is currently generic over `StorageEngine`:
+The SDK uses type erasure for storage engines:
 
 ```rust
-pub struct RangoClient<S: StorageEngine> { /* ... */ }
+pub struct RangoClient { /* ... */ }
 ```
 
-This means users must link against a concrete storage adapter (e.g., `RedbStorage` from `rango-storage`) when building applications. Type erasure to `Box<dyn StorageEngine>` is intentionally deferred to a follow-up issue with its own ADR.
+Storage engines are passed as `Arc<dyn StorageEngine>` at construction time. This allows users to swap storage backends at runtime without changing client code.
 
-**Implication**: Users cannot freely swap storage backends at runtime in v0.1.0. This is a known constraint and will be revisited in a future release.
+**Implication**: Users can freely use any `StorageEngine` implementation (e.g., `RedbStorage`, `MemoryStorage`) without generic parameter propagation in their application code.
 
 ---
 

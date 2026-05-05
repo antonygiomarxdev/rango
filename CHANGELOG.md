@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **StorageEngine generic erased** (#44): `RangoClient` and `RangoEngine` are no longer generic over `StorageEngine`. The SDK surface is simpler: `RangoClient::open(Arc<dyn StorageEngine>, ...)` instead of `RangoClient<RedbStorage>`.
+- **ROADMAP v0.3.0 redefined** (#51, #53): v0.3.0 scope narrowed from "Capabilities Baseline" (vector/graph adapters) to "Operability & Sync Baseline". Semantic retrieval and external vector store adapters deferred to post-v0.3.0 pending an ADR on embedding versioning.
+
+### Documentation
+- Aligned outdated phase/version references across all docs: Phase 8/9 → current phases, v1/v1.5-v2/v2+ → v0.1.0/v0.2.0/post-v0.3.0.
+- Clarified that adapter contracts (vector/graph) define the interface only; concrete implementations (Qdrant, Neo4j) are external to core.
+
 ## [0.2.0] — 2026-04-30
 
 ### Added

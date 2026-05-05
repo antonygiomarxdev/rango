@@ -63,11 +63,19 @@ pub trait GraphRetrievalAdapter: Send + Sync {
 
 ## Reference Implementations
 
-| Adapter | Type | Status |
-|---------|------|--------|
-| `QdrantAdapter` | Vector | Mock (ready for real implementation) |
-| `Neo4jAdapter` | Graph | Mock (ready for real implementation) |
-| `AdapterCapabilities` | Both | Fallback (always returns Unavailable) |
+Rango core provides the trait contracts and conformance tests. Concrete adapter implementations for specific backends live outside the core repository.
+
+| Adapter | Type | Location | Status |
+|---------|------|----------|--------|
+| `MockVectorAdapter` | Vector | `rango-server` (test fixtures) | For conformance testing |
+| `MockGraphAdapter` | Graph | `rango-server` (test fixtures) | For conformance testing |
+| `FallbackAdapter` | Both | `rango-server` | Always returns `Unavailable` |
+
+External implementations (maintained separately):
+- `QdrantAdapter` — community or external repo
+- `Neo4jAdapter` — community or external repo
+
+These external adapters MUST pass the conformance suite to be considered compatible.
 
 ## Conformance Tests
 

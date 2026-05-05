@@ -1,6 +1,6 @@
-# Memory Model — Rango Phase 8
+# Memory Model — Rango Phase 2 (Memory Control Plane)
 
-**Status:** Canonical specification for phase 8 implementation  
+**Status:** Canonical specification for Phase 2 implementation  
 **Last updated:** 2026-04-23  
 **Scope:** Memory-first architecture with explicit state/history/artifact separation
 
@@ -246,7 +246,7 @@ Sort key: (collection, timestamp, seq, doc_id, write_id)
   5. write_id:         Final tie-breaker for deterministic idempotency
 ```
 
-**Rationale:** This tuple matches `RangoEngine::apply_mutations_deterministic` and is the canonical replay source for Phase 01.
+**Rationale:** This tuple matches `RangoEngine::apply_mutations_deterministic` and is the canonical replay source for Phase 1.
 
 ### Idempotency Guarantee
 
@@ -391,7 +391,7 @@ Compatibility requirements for these fields:
 5. `trust_score` is bounded to `[0.0, 1.0]`; out-of-range values are invalid.
 6. `updated_at >= created_at` is mandatory for deterministic lifecycle ordering.
 
-## Phase 09 Control-Plane Alignment
+## Control-Plane Alignment
 
 This model is enforced through explicit control-plane APIs in `rango_core`:
 

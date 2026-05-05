@@ -20,15 +20,18 @@ The ranking formula is locked as `v1`:
 
 Every ranked candidate includes explainability metadata with weighted components and total score.
 
-### D05-02: External adapter boundary and primary graph backend
+### D05-02: External adapter boundary (contract-first)
 
 Vector and graph retrieval are implemented through adapter interfaces in `crates/server/src/retrieval/adapters.rs`.
-Reference boundaries are:
 
-- Vector boundary: Qdrant-compatible adapter shape
-- Graph boundary: Neo4j/`neo4rs`-compatible adapter shape
+**Key principle:** Rango defines the contract; external tools implement it. Rango does not depend on any specific vector store or graph database.
 
-Adapters are optional external capabilities. Canonical core/runtime truth remains oplog + materialized state + checkpoints.
+The adapter contract specifies:
+- Input: `RetrievalCapabilityRequest` with tenant_id, namespace, query, limit
+- Output: `RetrievalCapabilityResponse` with ranked candidates + metadata
+- Failure mode: degraded response with canonical fallback
+
+**Note:** Reference implementations for specific backends (e.g., Qdrant, Neo4j) are external to Rango core and maintained separately. Rango core only validates against the contract interface + mock adapters for testing.
 
 ### D05-03: Degradation semantics
 

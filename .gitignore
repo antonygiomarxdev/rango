@@ -54,3 +54,11 @@ criterion/
 
 # Local Claude Code settings (per-developer, never commit)
 .claude/
+
+# Superpowers workflow artifacts (local-only)
+docs/superpowers/
+.worktrees/
+.agents/
+.codebuddy/
+.continue/
+skills-lock.json

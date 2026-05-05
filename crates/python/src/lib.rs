@@ -80,7 +80,7 @@ fn parse_doc_id(id: &str) -> DocumentId {
 /// ```
 #[pyclass(name = "RangoClient")]
 pub struct PyRangoClient {
-    client: rango_sdk::RangoClient<DegradingStorage<RedbStorage>>,
+    client: rango_sdk::RangoClient,
 }
 
 #[pymethods]

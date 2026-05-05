@@ -6,7 +6,7 @@ use rango_oplog::NullOplog;
 use rango_storage::MemoryStorage;
 use rango_types::{CollectionName, DocumentId};
 
-fn setup() -> RangoEngine<MemoryStorage> {
+fn setup() -> RangoEngine {
     let storage = Arc::new(MemoryStorage::new());
     let oplog = Arc::new(NullOplog::new());
     RangoEngine::open(storage, oplog, "test-node").unwrap()

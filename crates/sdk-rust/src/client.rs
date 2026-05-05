@@ -7,14 +7,14 @@ use std::sync::Arc;
 use tracing::instrument;
 
 /// Public SDK for Rango.
-pub struct RangoClient<S: StorageEngine> {
-    engine: RangoEngine<S>,
+pub struct RangoClient {
+    engine: RangoEngine,
 }
 
-impl<S: StorageEngine> RangoClient<S> {
+impl RangoClient {
     #[instrument(skip(storage, oplog, node_id))]
     pub fn open(
-        storage: Arc<S>,
+        storage: Arc<dyn StorageEngine>,
         oplog: Arc<dyn Oplog>,
         node_id: impl Into<String>,
     ) -> Result<Self, RangoError> {
@@ -26,7 +26,7 @@ impl<S: StorageEngine> RangoClient<S> {
     #[doc(hidden)]
     #[instrument(skip(storage, oplog, node_id, config))]
     pub fn open_with_config(
-        storage: Arc<S>,
+        storage: Arc<dyn StorageEngine>,
         oplog: Arc<dyn Oplog>,
         node_id: impl Into<String>,
         config: RangoConfig,
@@ -36,7 +36,7 @@ impl<S: StorageEngine> RangoClient<S> {
         })
     }
 
-    pub fn collection(&self, name: &str) -> CollectionClient<'_, S> {
+    pub fn collection(&self, name: &str) -> CollectionClient<'_> {
         CollectionClient {
             client: self,
             name: CollectionName::new(name),
@@ -47,17 +47,17 @@ impl<S: StorageEngine> RangoClient<S> {
     /// This is a temporary escape hatch for code not yet migrated to the stable SDK surface.
     /// Do not build new code on this method; it may be removed in a future release.
     #[doc(hidden)]
-    pub fn __engine(&self) -> &RangoEngine<S> {
+    pub fn __engine(&self) -> &RangoEngine {
         &self.engine
     }
 }
 
-pub struct CollectionClient<'a, S: StorageEngine> {
-    client: &'a RangoClient<S>,
+pub struct CollectionClient<'a> {
+    client: &'a RangoClient,
     name: CollectionName,
 }
 
-impl<S: StorageEngine> CollectionClient<'_, S> {
+impl CollectionClient<'_> {
     #[instrument(skip(self, doc), fields(collection = %self.name.0))]
     pub fn insert_one(&self, doc: Document) -> Result<DocumentId, RangoError> {
         self.client.engine.insert_one(&self.name, doc)

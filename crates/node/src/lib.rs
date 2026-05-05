@@ -65,7 +65,7 @@ fn rango_err_to_napi(err: RangoError) -> Error {
 
 #[napi]
 pub struct RangoClient {
-    client: rango_sdk::RangoClient<DegradingStorage<RedbStorage>>,
+    client: rango_sdk::RangoClient,
 }
 
 #[napi]

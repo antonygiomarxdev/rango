@@ -3,7 +3,6 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use bson::Document;
-use rango_storage::StorageEngine;
 use rango_types::{CollectionName, RangoError};
 
 use crate::RangoClient;
@@ -54,7 +53,7 @@ pub struct ExportResult {
     pub exported: usize,
 }
 
-impl<S: StorageEngine> RangoClient<S> {
+impl RangoClient {
     /// Import documents from a JSON Lines file (one JSON document per line).
     /// Each line should be a valid JSON object. If the object has an `_id` field,
     /// it will be preserved (ObjectId strings are converted to BSON ObjectId).
@@ -335,7 +334,7 @@ mod tests {
     use std::sync::Arc;
     use tempfile::NamedTempFile;
 
-    fn create_test_client() -> RangoClient<rango_storage::MemoryStorage> {
+    fn create_test_client() -> RangoClient {
         let storage = Arc::new(rango_storage::MemoryStorage::new());
         let oplog = Arc::new(rango_oplog::NullOplog::new());
         RangoClient::open(storage, oplog, "test-node").unwrap()

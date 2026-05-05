@@ -11,8 +11,8 @@ use tracing::{info, instrument, warn};
 use crate::metrics::Metrics;
 
 /// The main Rango engine — coordinates storage, indexing, query, and sync.
-pub struct RangoEngine<S: StorageEngine> {
-    storage: Arc<S>,
+pub struct RangoEngine {
+    storage: Arc<dyn StorageEngine>,
     oplog: Arc<dyn Oplog>,
     node_id: String,
     metrics: Metrics,
@@ -20,9 +20,9 @@ pub struct RangoEngine<S: StorageEngine> {
     applied_write_ids: Mutex<HashSet<String>>,
 }
 
-impl<S: StorageEngine> RangoEngine<S> {
+impl RangoEngine {
     pub fn open(
-        storage: Arc<S>,
+        storage: Arc<dyn StorageEngine>,
         oplog: Arc<dyn Oplog>,
         node_id: impl Into<String>,
     ) -> Result<Self, RangoError> {
@@ -30,7 +30,7 @@ impl<S: StorageEngine> RangoEngine<S> {
     }
 
     pub fn open_with_config(
-        storage: Arc<S>,
+        storage: Arc<dyn StorageEngine>,
         oplog: Arc<dyn Oplog>,
         node_id: impl Into<String>,
         config: RangoConfig,

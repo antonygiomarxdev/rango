@@ -636,10 +636,7 @@ fn run_doctor(path: &Path, passphrase: Option<&str>) -> Result<()> {
     }
 }
 
-fn check_canonical_envelope_metadata(
-    client: &rango_sdk::RangoClient<rango_storage::RedbStorage>,
-    report: &mut DoctorReport,
-) {
+fn check_canonical_envelope_metadata(client: &rango_sdk::RangoClient, report: &mut DoctorReport) {
     use rango_types::CollectionName;
 
     // We need to sample from existing collections. For MVP, we try a few common collection names
@@ -746,7 +743,7 @@ fn open_persistent_client(
     path: &Path,
     node_id: &str,
     passphrase: Option<&str>,
-) -> Result<rango_sdk::RangoClient<rango_storage::RedbStorage>, anyhow::Error> {
+) -> Result<rango_sdk::RangoClient, anyhow::Error> {
     let config = load_config(path);
     let storage = Arc::new(rango_storage::RedbStorage::open(path.join("data.redb"))?);
     let crypto = load_crypto(path, passphrase)?;

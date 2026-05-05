@@ -115,20 +115,23 @@ Workstream E — polyglot DX:
 - reference integration: LangGraph agent on Rango
 - reference integration: CrewAI agent on Rango
 
-### v0.3.0 (Capabilities Baseline)
+### v0.3.0 (Operability & Sync Baseline)
 
-Enable advanced retrieval capabilities without contaminating core truth and harden multi-node operation.
+Harden multi-node operation and make Rango operable in production environments.
 
-Workstream F — capability contracts:
-- external vector/graph capability contracts
-- adapter conformance kit (mock + golden fixtures)
-- reference adapters: pgvector, Qdrant
-- trust-aware ranking input contract + bounded context assembly docs
+Workstream F — sync hardening:
+- multi-node sync hardening (partition/heal regression suite)
+- sync idempotency verification under network failures
+- deterministic convergence tests for split-brain scenarios
 
 Workstream G — operability:
 - backup/restore CLI with optional S3 sink
-- multi-node sync hardening (partition/heal regression suite)
-- Grafana reference dashboard wired to OTel metrics
+- external read contract (how tools like LangChain/LlamaIndex read from Rango)
+- trust-aware ranking input contract + bounded context assembly docs
+
+**Deferred to post-v0.3.0:**
+- Semantic retrieval (embeddings, vector search) — requires ADR on versioning
+- External vector store adapters (pgvector, Qdrant) — Rango remains core-only
 
 ## GitHub Execution Model
 
